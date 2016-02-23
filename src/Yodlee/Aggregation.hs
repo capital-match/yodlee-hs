@@ -12,8 +12,11 @@ module Yodlee.Aggregation
        , userUsername
        , userPassword
        , CobrandSession
+       , _CobrandSession
        , UserSession
+       , _UserSession
        , Site
+       , _Site
        , coblogin
        , login
        , searchSite
@@ -56,20 +59,20 @@ $(declareLenses [d|
 instance Default UserCredential where
   def = UserCredential T.empty T.empty
 
-$(declarePrisms [d|
-  newtype CobrandSession = CobrandSession Value
-    deriving (Show)
-  |])
+newtype CobrandSession = CobrandSession Value deriving (Show)
 
-$(declarePrisms [d|
-  newtype UserSession = UserSession Value
-    deriving (Show)
-  |])
+_CobrandSession :: Getter CobrandSession Value
+_CobrandSession = to (\(CobrandSession a) -> a)
 
-$(declarePrisms [d|
-  newtype Site = Site Value
-    deriving (Show)
-  |])
+newtype UserSession = UserSession Value deriving (Show)
+
+_UserSession :: Getter UserSession Value
+_UserSession = to (\(UserSession a) -> a)
+
+newtype Site = Site Value deriving (Show)
+
+_Site :: Getter Site Value
+_Site = to (\(Site a) -> a)
 
 urlBase :: String
 urlBase = "https://rest.developer.yodlee.com/services/srest/restserver/v1.0"
@@ -93,7 +96,7 @@ coblogin session credential = do
 
   case r ^? responseBody . cobrandSessionToken of
     Nothing -> return Nothing
-    Just _ -> return $ r ^? responseBody . _Value . re _CobrandSession
+    Just _ -> return $ r ^? responseBody . _Value . to CobrandSession
 
 -- | This enables the consumer to log in to the application. Once the consumer
 -- logs in, a @'UserSession'@ is created and the token within the
@@ -109,7 +112,7 @@ login httpSess cbSess userCred = do
 
   case r ^? responseBody . userSessionToken of
     Nothing -> return Nothing
-    Just _ -> return $ r ^? responseBody . _Value . re _UserSession
+    Just _ -> return $ r ^? responseBody . _Value . to UserSession
 
 -- | This searches for sites. If the search string is found in the Display Name
 -- parameter or AKA parameter or Keywords parameter of any @'Site'@ object, that
@@ -122,4 +125,4 @@ searchSite httpSess cbSess user site = do
     , "userSessionToken" := view (_UserSession . userSessionToken) user
     , "siteSearchString" := site
     ]
-  return $ toListOf (responseBody . _Array . traverse . re _Site) r
+  return $ toListOf (responseBody . _Array . traverse . to Site) r
