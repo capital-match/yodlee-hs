@@ -22,14 +22,17 @@ module Yodlee.Aggregation
        , searchSite
   ) where
 
+import           Control.Error
 import           Control.Lens
+import           Control.Monad
+import           Control.Monad.IO.Class
 import           Data.Aeson
 import           Data.Aeson.Lens
 import           Data.Default
 import           Data.Monoid
-import qualified Data.Text                  as T
-import           Network.Wreq               as HTTP
-import           Network.Wreq.Session       as HTTPSess
+import qualified Data.Text              as T
+import           Network.Wreq           as HTTP
+import           Network.Wreq.Session   as HTTPSess
 
 -- | @'CobrandCredential'@ is a data structure that stores the credentials for a
 -- Yodlee cobrand login. The data constructor is purposefully not exported. You
@@ -85,34 +88,34 @@ userSessionToken = key "userContext" . key "conversationCredentials" . key "sess
 
 -- | This authenticates the cobrand. Once the cobrand is authenticated a
 -- @'CobrandSession'@ is created and the token within the @'CobrandSession'@
--- expires every 100 minutes.
+-- expires every 100 minutes. Exceptions will be thrown on network errors, but
+-- @'Nothing'@ will be returned if the server did not send a valid JSON response,
+-- or the JSON response does not contain the expected fields.
 coblogin :: HTTPSess.Session -> CobrandCredential -> IO (Maybe CobrandSession)
-coblogin session credential = do
+coblogin session credential = runMaybeT $ do
   let url = urlBase <> "/authenticate/coblogin"
-  r <- asValue =<< HTTPSess.post session url
+  bs <- liftIO $ HTTPSess.post session url
     [ "cobrandLogin" := view cobrandUsername credential
     , "cobrandPassword" := view cobrandPassword credential
     ]
-
-  case r ^? responseBody . cobrandSessionToken of
-    Nothing -> return Nothing
-    Just _ -> return $ r ^? responseBody . _Value . to CobrandSession
+  r <- asValue bs
+  guard . isJust $ r ^? responseBody . cobrandSessionToken
+  hoistMaybe $ r ^? responseBody . _Value . to CobrandSession
 
 -- | This enables the consumer to log in to the application. Once the consumer
 -- logs in, a @'UserSession'@ is created and the token within the
 -- @'UserSession'@ expires every 30 minutes.
 login :: HTTPSess.Session -> CobrandSession -> UserCredential -> IO (Maybe UserSession)
-login httpSess cbSess userCred = do
+login httpSess cbSess userCred = runMaybeT $ do
   let url = urlBase <> "/authenticate/login"
-  r <- asValue =<< HTTPSess.post httpSess url
+  bs <- liftIO $ HTTPSess.post httpSess url
     [ "cobSessionToken" := view (_CobrandSession . cobrandSessionToken) cbSess
     , "login" := view userUsername userCred
     , "password" := view userPassword userCred
     ]
-
-  case r ^? responseBody . userSessionToken of
-    Nothing -> return Nothing
-    Just _ -> return $ r ^? responseBody . _Value . to UserSession
+  r <- asValue bs
+  guard . isJust $ r ^? responseBody . userSessionToken
+  hoistMaybe $ r ^? responseBody . _Value . to UserSession
 
 -- | This searches for sites. If the search string is found in the Display Name
 -- parameter or AKA parameter or Keywords parameter of any @'Site'@ object, that

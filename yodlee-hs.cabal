@@ -21,6 +21,8 @@ library
                      , aeson >= 0.9
                      , lens-aeson >= 1.0
                      , text >= 1.2
+                     , transformers >= 0.4
+                     , errors >= 2.1
   default-language:    Haskell2010
 
 test-suite yodlee-hs-test
