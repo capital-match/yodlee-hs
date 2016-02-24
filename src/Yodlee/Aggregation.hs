@@ -5,7 +5,7 @@
 -- REST API. This is a thin wrapper around the API.
 module Yodlee.Aggregation
        (
-         -- * The @'Default'@ class
+         -- * The 'Default' class
          Default(..)
          -- * Data types
        , Yodlee
@@ -31,7 +31,7 @@ module Yodlee.Aggregation
        , SiteCredentialComponent
        , siteCredItemFormat
        , siteCredItemValue
-         -- ** JSON @'Value'@s from the API
+         -- ** JSON 'Value's from the API
          -- $value
        , CobrandSession
        , _CobrandSession
@@ -68,24 +68,24 @@ import           Network.Wreq.Types
 
 -- $apiin
 -- The API input data types store inputs to the APIs. This includes, for
--- example, the @'CobrandCredential'@ and @'UserCredential'@ types, which are
--- data structures that store the relevant credentials (username and password).
--- The data constructors for all those types are purposefully not exported. You
--- are expected to construct those objects by using @'def'@. You can then set
--- the fields using the provided lenses, like this:
+-- example, the 'CobrandCredential' and 'UserCredential' types, which are data
+-- structures that store the relevant credentials (username and password). The
+-- data constructors for all those types are purposefully not exported. You are
+-- expected to construct those objects by using 'def'. You can then set the
+-- fields using the provided lenses, like this:
 --
 -- @
 -- 'set' 'cobrandUsername' "username" . 'set' 'cobrandPassword' "password" $ 'def'
 -- @
 --
 
--- | @'CobrandCredential'@ is a data structure that stores the credentials for a
+-- | 'CobrandCredential' is a data structure that stores the credentials for a
 -- Yodlee cobrand login.
 --
--- According to Yodlee, the cobrand login is a process by
--- which a developer authenticates their application with the Yodlee API before
--- registering its user and performing other actions like adding accounts,
--- getting transactions, etc., on behalf of its user.
+-- According to Yodlee, the cobrand login is a process by which a developer
+-- authenticates their application with the Yodlee API before registering its
+-- user and performing other actions like adding accounts, getting transactions,
+-- etc., on behalf of its user.
 $(declareLenses [d|
   data CobrandCredential = CobrandCredential
     { cobrandUsername :: T.Text
@@ -93,12 +93,12 @@ $(declareLenses [d|
     } deriving (Show)
   |])
 
--- | The default value for @'CobrandCredential'@ is such that both the username
--- and password are @'T.empty'@.
+-- | The default value for 'CobrandCredential' is such that both the username
+-- and password are 'T.empty'.
 instance Default CobrandCredential where
   def = CobrandCredential T.empty T.empty
 
--- | @'UserCredential'@ is a data structure that stores user credentials.
+-- | 'UserCredential' is a data structure that stores user credentials.
 $(declareLenses [d|
   data UserCredential = UserCredential
     { userUsername :: T.Text
@@ -106,12 +106,12 @@ $(declareLenses [d|
     } deriving (Show)
   |])
 
--- | The default value for @'UserCredential'@ is such that both the username and
--- password are @'T.empty'@.
+-- | The default value for 'UserCredential' is such that both the username and
+-- password are 'T.empty'.
 instance Default UserCredential where
   def = UserCredential T.empty T.empty
 
--- | @'UserRegistrationData'@ is a data structure that contains credentials and
+-- | 'UserRegistrationData' is a data structure that contains credentials and
 -- the user profile, such as email, name, address, city, etc. Currently, not all
 -- are supported.
 $(declareLenses [d|
@@ -131,13 +131,13 @@ $(declareLenses [d|
 instance Default UserRegistrationData where
   def = UserRegistrationData def T.empty Nothing Nothing Nothing Nothing Nothing Nothing Nothing
 
--- | @'SiteCredentialComponent'@ is a data structure that contains the expected
+-- | 'SiteCredentialComponent' is a data structure that contains the expected
 -- format as well as the provided value of a piece of site credential. In Yodlee
 -- terms, site account is the association of a consumer with accounts available
 -- in the site, and therefore a site login uses credential types that are unique
--- to each site. For this reason, a @'Getter'@ called @'siteCredItemFormat'@ is
+-- to each site. For this reason, a 'Getter' called 'siteCredItemFormat' is
 -- provided to get the expected format of this piece of credential. The
--- credential may then be added by using the @'Lens''@ called @'siteCredItemValue'@.
+-- credential may then be added by using the 'Lens'' called 'siteCredItemValue'.
 $(declareLenses [d|
   data SiteCredentialComponent = SiteCredentialComponent
     { siteCredItemValue :: T.Text
@@ -145,57 +145,57 @@ $(declareLenses [d|
     } deriving (Show)
   |])
 
--- | This is the @'Getter'@ that allows you to extract the JSON @'Value'@ inside
--- @'SiteCredentialComponent'@. This is slightly unusual because it's a
--- @'Getter'@, not a @'Lens''@ to prevent modifications.
+-- | This is the 'Getter' that allows you to extract the JSON 'Value' inside
+-- 'SiteCredentialComponent'. This is slightly unusual because it's a 'Getter',
+-- not a 'Lens'' to prevent modifications.
 siteCredItemFormat :: Getter SiteCredentialComponent Value
 siteCredItemFormat = siteCredItemFormatInternal
 
 -- $value
--- This section contains data structures such as @'CobrandSession'@,
--- @'UserSession'@, and @'Site'@, which are returned by the Yodlee API. They are
+-- This section contains data structures such as 'CobrandSession',
+-- 'UserSession', and 'Site', which are returned by the Yodlee API. They are
 -- implemented by wrapping a newtype around the raw @Value@. The reason is
 -- because Yodlee does not seem to document very well exactly which fields are
 -- present. To avoid the risk of the Haskell version getting out-of-date with
 -- the upstream structure, we will trade some type safety here.
 --
--- You can access the underlying @'Value'@ using the corresponding @'Getter'@. You
--- can extract the @'Value'@, but you normally cannot modify those data structures
--- without extracting the @'Value'@ or construct them (unless you use
+-- You can access the underlying 'Value' using the corresponding 'Getter'. You
+-- can extract the 'Value', but you normally cannot modify those data structures
+-- without extracting the 'Value' or construct them (unless you use
 -- @unsafeCoerce@ in which case you should know what you are doing).
 
--- | @'CobrandSession'@ is the JSON data structure returned by the Yodlee API
+-- | 'CobrandSession' is the JSON data structure returned by the Yodlee API
 -- after a successful cobrand login.
 newtype CobrandSession = CobrandSession Value deriving (Show)
 
--- | This is the @'Getter'@ that allows you to extract the JSON @'Value'@ inside
--- @'CobrandSession'@.
+-- | This is the 'Getter' that allows you to extract the JSON 'Value' inside
+-- a 'CobrandSession'.
 _CobrandSession :: Getter CobrandSession Value
 _CobrandSession = to (\(CobrandSession a) -> a)
 
--- | @'UserSession'@ is the JSON data structure returned by the Yodlee API after
--- a successful user login.
+-- | 'UserSession' is the JSON data structure returned by the Yodlee API after a
+-- successful user login.
 newtype UserSession = UserSession Value deriving (Show)
 
--- | This is the @'Getter'@ that allows you to extract the JSON @'Value'@ inside
--- @'UserSession'@.
+-- | This is the 'Getter' that allows you to extract the JSON 'Value' inside
+-- a 'UserSession'.
 _UserSession :: Getter UserSession Value
 _UserSession = to (\(UserSession a) -> a)
 
--- | @'UserSession'@ is the JSON data structure returned by the Yodlee API after
--- a successful site search.
+-- | 'UserSession' is the JSON data structure returned by the Yodlee API after a
+-- successful site search.
 newtype Site = Site Value deriving (Show)
 
--- | This is the @'Getter'@ that allows you to extract the JSON @'Value'@ inside
--- @'Site'@.
+-- | This is the 'Getter' that allows you to extract the JSON 'Value' inside
+-- 'Site'.
 _Site :: Getter Site Value
 _Site = to (\(Site a) -> a)
 
--- | @'SiteId'@ is a newtype wrapper for the site ID. You can get a @'SiteId'@
--- by using the @'siteId'@ @'Getter'@.
+-- | 'SiteId' is a newtype wrapper for the site ID. You can get a 'SiteId' by
+-- using the 'siteId' 'Getter'.
 newtype SiteId = SiteId Integer deriving (Show)
 
--- | This is the @'Getter'@ that allows you to get a @'SiteId'@ from a @'Site'@.
+-- | This is the 'Getter' that allows you to get a 'SiteId' from a 'Site'.
 siteId :: Getter Site SiteId
 siteId = to (fromJust <$> preview (_Site . key "siteId" . _Integer . to SiteId))
 
@@ -208,12 +208,12 @@ cobrandSessionToken = key "cobrandConversationCredentials" . key "sessionToken" 
 userSessionToken :: Traversal' Value T.Text
 userSessionToken = key "userContext" . key "conversationCredentials" . key "sessionToken" . _String
 
--- | The @'Yodlee'@ monad is a type returned by all endpoint functions. This
--- /may/ become a @newtype@ in the future. The error type may also be more
--- descriptive, i.e. not just a @'Nothing'@ in case of error.
+-- | The 'Yodlee' monad is a type returned by all endpoint functions. This /may/
+-- become a @newtype@ in the future. The error type may also be more
+-- descriptive, i.e. not just a 'Nothing' in case of error.
 type Yodlee a = MaybeT (ReaderT HTTPSess.Session IO) a
 
--- | The @'runYodlee'@ function takes an action described by the @'Yodlee'@
+-- | The 'runYodlee' function takes an action described by the 'Yodlee'
 -- monad and executes it.
 runYodlee :: Yodlee a -> IO (Maybe a)
 runYodlee = HTTPSess.withSession . runReaderT . runMaybeT
@@ -230,10 +230,10 @@ performAPIRequest urlPart postable = do
   hoistMaybe $ asValue bs
 
 -- | This authenticates the cobrand. Once the cobrand is authenticated a
--- @'CobrandSession'@ is created and the token within the @'CobrandSession'@
--- expires every 100 minutes. Exceptions will be thrown on network errors, but
--- @'Nothing'@ will be returned if the server did not send a valid JSON response,
--- or the JSON response does not contain the expected fields.
+-- 'CobrandSession' is created and the token within the 'CobrandSession' expires
+-- every 100 minutes. Exceptions will be thrown on network errors, but 'Nothing'
+-- will be returned if the server did not send a valid JSON response, or the
+-- JSON response does not contain the expected fields.
 coblogin :: CobrandCredential -> Yodlee CobrandSession
 coblogin credential = do
   r <- performAPIRequest "/authenticate/coblogin"
@@ -267,8 +267,8 @@ register3 cbSess userReg = do
   checkUserSession r
 
 -- | This enables the consumer to log in to the application. Once the consumer
--- logs in, a @'UserSession'@ is created. It contains a token that will be used
--- in subsequently API calls. The token expires every 30 minutes.
+-- logs in, a 'UserSession' is created. It contains a token that will be used in
+-- subsequently API calls. The token expires every 30 minutes.
 login :: CobrandSession -> UserCredential -> Yodlee UserSession
 login cbSess userCred = do
   r <- performAPIRequest "/authenticate/login"
@@ -284,7 +284,7 @@ checkUserSession r = do
   hoistMaybe $ preview (responseBody . _Value . to UserSession) r
 
 -- | This searches for sites. If the search string is found in the display name
--- parameter or aka parameter or keywords parameter of any @'Site'@ object, that
+-- parameter or aka parameter or keywords parameter of any 'Site' object, that
 -- site will be included in this list of matching sites.
 searchSite :: CobrandSession -> UserSession -> T.Text -> Yodlee [Site]
 searchSite cbSess user site = do
@@ -297,19 +297,19 @@ searchSite cbSess user site = do
   guard $ allOf (responseBody . _Array . traverse) (has (key "siteId" . _Integer)) r
   return $ toListOf (responseBody . _Array . traverse . to Site) r
 
--- | This is a @'Fold'@ that allows you to directly obtain a list of
--- @'SiteCredentialComponent'@ using @'toListOf'@. Alternatively, you can also
--- use @'getSiteLoginForm'@ to achieve the same thing with an HTTP call (but
--- why?) in 'IO'.
+-- | This is a 'Fold' that allows you to directly obtain a list of
+-- 'SiteCredentialComponent' using 'toListOf'. Alternatively, you can also use
+-- 'getSiteLoginForm' to achieve the same thing with an HTTP call in 'IO'. (But
+-- why?)
 siteLoginForm :: Fold Site SiteCredentialComponent
 siteLoginForm = _Site . key "loginForms" . _Array . traverse . to (SiteCredentialComponent T.empty)
 
 -- | This provides the login form associated with the requested site, given a
--- @'SiteId'@. It is unknown why this needs to exist because @'searchSite'@
--- already returns this information, but it's included as per recommendation
--- from Yodlee. The login form comprises of the credential fields that are
--- required for adding a member to that site. This call lets the consumers enter
--- their credentials into the login form for the site they are trying to add.
+-- 'SiteId'. It is unknown why this needs to exist because 'searchSite' already
+-- returns this information, but it's included as per recommendation from
+-- Yodlee. The login form comprises of the credential fields that are required
+-- for adding a member to that site. This call lets the consumers enter their
+-- credentials into the login form for the site they are trying to add.
 getSiteLoginForm :: CobrandSession -> SiteId -> Yodlee [SiteCredentialComponent]
 getSiteLoginForm cbSess (SiteId i) = do
   r <- performAPIRequest "/jsonsdk/SiteAccountManagement/getSiteLoginForm"
