@@ -8,6 +8,8 @@ module Yodlee.Aggregation
          -- * The @'Default'@ class
          Default(..)
          -- * Data types
+       , Yodlee
+       , runYodlee
          -- ** Credential types
          -- $cred
        , CobrandCredential
@@ -39,6 +41,7 @@ import           Control.Error
 import           Control.Lens.Combinators
 import           Control.Monad
 import           Control.Monad.IO.Class
+import           Control.Monad.Reader
 import           Data.Aeson
 import           Data.Aeson.Lens
 import           Data.Default
@@ -47,6 +50,7 @@ import           Data.Monoid
 import qualified Data.Text                as T
 import           Network.Wreq             as HTTP
 import           Network.Wreq.Session     as HTTPSess
+import           Network.Wreq.Types
 
 -- $cred
 -- The @'CobrandCredential'@ and @'UserCredential'@ are data structures that
@@ -159,49 +163,60 @@ cobrandSessionToken = key "cobrandConversationCredentials" . key "sessionToken" 
 userSessionToken :: Traversal' Value T.Text
 userSessionToken = key "userContext" . key "conversationCredentials" . key "sessionToken" . _String
 
+-- | The @'Yodlee'@ monad is a type returned by all endpoint functions. This
+-- /may/ become a @newtype@ in the future. The error type may also be more
+-- descriptive, i.e. not just a @'Nothing'@ in case of error.
+type Yodlee a = MaybeT (ReaderT HTTPSess.Session IO) a
+
+-- | The @'runYodlee'@ function takes an action described by the @'Yodlee'@
+-- monad and executes it.
+runYodlee :: Yodlee a -> IO (Maybe a)
+runYodlee action = HTTPSess.withSession $ runReaderT (runMaybeT action)
+
+performAPIRequest :: (Postable a) => String -> a -> Yodlee (Response Value)
+performAPIRequest urlPart postable = do
+  session <- lift ask
+  let url = urlBase <> urlPart
+  bs <- liftIO $ HTTPSess.post session url postable
+  hoistMaybe $ asValue bs
+
 -- | This authenticates the cobrand. Once the cobrand is authenticated a
 -- @'CobrandSession'@ is created and the token within the @'CobrandSession'@
 -- expires every 100 minutes. Exceptions will be thrown on network errors, but
 -- @'Nothing'@ will be returned if the server did not send a valid JSON response,
 -- or the JSON response does not contain the expected fields.
-coblogin :: HTTPSess.Session -> CobrandCredential -> IO (Maybe CobrandSession)
-coblogin session credential = runMaybeT $ do
-  let url = urlBase <> "/authenticate/coblogin"
-  bs <- liftIO $ HTTPSess.post session url
+coblogin :: CobrandCredential -> Yodlee CobrandSession
+coblogin credential = do
+  r <- performAPIRequest "/authenticate/coblogin"
     [ "cobrandLogin" := view cobrandUsername credential
     , "cobrandPassword" := view cobrandPassword credential
     ]
-  r <- asValue bs
   guard $ has (responseBody . cobrandSessionToken) r
   hoistMaybe $ preview (responseBody . _Value . to CobrandSession) r
 
 -- | This enables the consumer to log in to the application. Once the consumer
 -- logs in, a @'UserSession'@ is created. It contains a token that will be used
 -- in subsequently API calls. The token expires every 30 minutes.
-login :: HTTPSess.Session -> CobrandSession -> UserCredential -> IO (Maybe UserSession)
-login httpSess cbSess userCred = runMaybeT $ do
-  let url = urlBase <> "/authenticate/login"
-  bs <- liftIO $ HTTPSess.post httpSess url
+login :: CobrandSession -> UserCredential -> Yodlee UserSession
+login cbSess userCred = do
+  r <- performAPIRequest "/authenticate/login"
     [ "cobSessionToken" := view (_CobrandSession . cobrandSessionToken) cbSess
     , "login" := view userUsername userCred
     , "password" := view userPassword userCred
     ]
-  r <- asValue bs
   guard $ has (responseBody . userSessionToken) r
   hoistMaybe $ preview (responseBody . _Value . to UserSession) r
 
 -- | This searches for sites. If the search string is found in the display name
 -- parameter or aka parameter or keywords parameter of any @'Site'@ object, that
 -- site will be included in this list of matching sites.
-searchSite :: HTTPSess.Session -> CobrandSession -> UserSession -> T.Text -> IO (Maybe [Site])
-searchSite httpSess cbSess user site = runMaybeT $ do
-  let url = urlBase <> "/jsonsdk/SiteTraversal/searchSite"
-  bs <- liftIO $ HTTPSess.post httpSess url
+searchSite :: CobrandSession -> UserSession -> T.Text -> Yodlee [Site]
+searchSite cbSess user site = do
+  r <- performAPIRequest "/jsonsdk/SiteTraversal/searchSite"
     [ "cobSessionToken" := view (_CobrandSession . cobrandSessionToken) cbSess
     , "userSessionToken" := view (_UserSession . userSessionToken) user
     , "siteSearchString" := site
     ]
-  r <- asValue bs
   -- This guard checks it contains a siteId. Do not remove it! The correctness of @siteId@ depends on it.
   guard $ allOf (responseBody . _Array . traverse) (has (key "siteId" . _Integer)) r
   return $ toListOf (responseBody . _Array . traverse . to Site) r
@@ -212,14 +227,12 @@ searchSite httpSess cbSess user site = runMaybeT $ do
 -- from Yodlee. The login form comprises of the credential fields that are
 -- required for adding a member to that site. This call lets the consumers enter
 -- their credentials into the login form for the site they are trying to add.
-getSiteLoginForm :: HTTPSess.Session -> CobrandSession -> SiteId -> IO (Maybe [SiteLoginFormComponent])
-getSiteLoginForm httpSess cbSess (SiteId i) = runMaybeT $ do
-  let url = urlBase <> "/jsonsdk/SiteAccountManagement/getSiteLoginForm"
-  bs <- liftIO $ HTTPSess.post httpSess url
+getSiteLoginForm :: CobrandSession -> SiteId -> Yodlee [SiteLoginFormComponent]
+getSiteLoginForm cbSess (SiteId i) = do
+  r <- performAPIRequest "/jsonsdk/SiteAccountManagement/getSiteLoginForm"
     [ "cobSessionToken" := view (_CobrandSession . cobrandSessionToken) cbSess
     , "siteId" := show i
     ]
-  r <- asValue bs
   -- Check that the conjunctionOp is 1, which is AND, i.e. the form fields form a product type. We don't want to deal with sum types.
   -- By the way, the second key "conjuctionOp" is misspelled.
   guard . (== Just 1) $ preview (responseBody . _Value . key "conjunctionOp" . key "conjuctionOp" . _Integer) r
