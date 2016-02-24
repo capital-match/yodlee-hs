@@ -28,6 +28,9 @@ module Yodlee.Aggregation
        , userAddress2
        , userCity
        , userCountry
+       , SiteCredentialComponent
+       , siteCredItemFormat
+       , siteCredItemValue
          -- ** JSON @'Value'@s from the API
          -- $value
        , CobrandSession
@@ -36,11 +39,11 @@ module Yodlee.Aggregation
        , _UserSession
        , Site
        , _Site
+       , siteLoginForm
        , SiteId
        , siteId
-       , SiteLoginFormComponent
-       , _SiteLoginFormComponent
          -- * Endpoints
+         -- $endpoints
        , coblogin
        , register3
        , login
@@ -128,6 +131,26 @@ $(declareLenses [d|
 instance Default UserRegistrationData where
   def = UserRegistrationData def T.empty Nothing Nothing Nothing Nothing Nothing Nothing Nothing
 
+-- | @'SiteCredentialComponent'@ is a data structure that contains the expected
+-- format as well as the provided value of a piece of site credential. In Yodlee
+-- terms, site account is the association of a consumer with accounts available
+-- in the site, and therefore a site login uses credential types that are unique
+-- to each site. For this reason, a @'Getter'@ called @'siteCredItemFormat'@ is
+-- provided to get the expected format of this piece of credential. The
+-- credential may then be added by using the @'Lens''@ called @'siteCredItemValue'@.
+$(declareLenses [d|
+  data SiteCredentialComponent = SiteCredentialComponent
+    { siteCredItemValue :: T.Text
+    , siteCredItemFormatInternal :: Value
+    } deriving (Show)
+  |])
+
+-- | This is the @'Getter'@ that allows you to extract the JSON @'Value'@ inside
+-- @'SiteCredentialComponent'@. This is slightly unusual because it's a
+-- @'Getter'@, not a @'Lens''@ to prevent modifications.
+siteCredItemFormat :: Getter SiteCredentialComponent Value
+siteCredItemFormat = siteCredItemFormatInternal
+
 -- $value
 -- This section contains data structures such as @'CobrandSession'@,
 -- @'UserSession'@, and @'Site'@, which are returned by the Yodlee API. They are
@@ -176,16 +199,6 @@ newtype SiteId = SiteId Integer deriving (Show)
 siteId :: Getter Site SiteId
 siteId = to (fromJust <$> preview (_Site . key "siteId" . _Integer . to SiteId))
 
--- | @'LoginFormComponent'@ is the JSON structure that corresponds to each field
--- in the login form returned by the Yodlee API after a successful retrieval of
--- login form for a site.
-newtype SiteLoginFormComponent = SiteLoginFormComponent Value deriving (Show)
-
--- | This is the @'Getter'@ that allows you to extract the JSON @'Value'@ inside
--- @'SiteLoginFormComponent'@.
-_SiteLoginFormComponent :: Getter SiteLoginFormComponent Value
-_SiteLoginFormComponent = to (\(SiteLoginFormComponent a) -> a)
-
 urlBase :: String
 urlBase = "https://rest.developer.yodlee.com/services/srest/restserver/v1.0"
 
@@ -203,7 +216,11 @@ type Yodlee a = MaybeT (ReaderT HTTPSess.Session IO) a
 -- | The @'runYodlee'@ function takes an action described by the @'Yodlee'@
 -- monad and executes it.
 runYodlee :: Yodlee a -> IO (Maybe a)
-runYodlee action = HTTPSess.withSession $ runReaderT (runMaybeT action)
+runYodlee = HTTPSess.withSession . runReaderT . runMaybeT
+
+-- $endpoint
+-- Those functions correspond to the identically named Yodlee Aggregation REST
+-- APIs. Some functions have a number following them. I don't know why.
 
 performAPIRequest :: (Postable a) => String -> a -> Yodlee (Response Value)
 performAPIRequest urlPart postable = do
@@ -280,13 +297,20 @@ searchSite cbSess user site = do
   guard $ allOf (responseBody . _Array . traverse) (has (key "siteId" . _Integer)) r
   return $ toListOf (responseBody . _Array . traverse . to Site) r
 
+-- | This is a @'Fold'@ that allows you to directly obtain a list of
+-- @'SiteCredentialComponent'@ using @'toListOf'@. Alternatively, you can also
+-- use @'getSiteLoginForm'@ to achieve the same thing with an HTTP call (but
+-- why?) in 'IO'.
+siteLoginForm :: Fold Site SiteCredentialComponent
+siteLoginForm = _Site . key "loginForms" . _Array . traverse . to (SiteCredentialComponent T.empty)
+
 -- | This provides the login form associated with the requested site, given a
 -- @'SiteId'@. It is unknown why this needs to exist because @'searchSite'@
 -- already returns this information, but it's included as per recommendation
 -- from Yodlee. The login form comprises of the credential fields that are
 -- required for adding a member to that site. This call lets the consumers enter
 -- their credentials into the login form for the site they are trying to add.
-getSiteLoginForm :: CobrandSession -> SiteId -> Yodlee [SiteLoginFormComponent]
+getSiteLoginForm :: CobrandSession -> SiteId -> Yodlee [SiteCredentialComponent]
 getSiteLoginForm cbSess (SiteId i) = do
   r <- performAPIRequest "/jsonsdk/SiteAccountManagement/getSiteLoginForm"
     [ "cobSessionToken" := view (_CobrandSession . cobrandSessionToken) cbSess
@@ -295,4 +319,4 @@ getSiteLoginForm cbSess (SiteId i) = do
   -- Check that the conjunctionOp is 1, which is AND, i.e. the form fields form a product type. We don't want to deal with sum types.
   -- By the way, the second key "conjuctionOp" is misspelled.
   guard . (== Just 1) $ preview (responseBody . _Value . key "conjunctionOp" . key "conjuctionOp" . _Integer) r
-  return $ toListOf (responseBody . key "componentList" . _Array . traverse . to SiteLoginFormComponent) r
+  return $ toListOf (responseBody . key "componentList" . _Array . traverse . to (SiteCredentialComponent T.empty)) r
