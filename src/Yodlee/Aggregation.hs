@@ -10,14 +10,24 @@ module Yodlee.Aggregation
          -- * Data types
        , Yodlee
        , runYodlee
-         -- ** Credential types
-         -- $cred
+         -- ** API Input types
+         -- $apiin
        , CobrandCredential
        , cobrandUsername
        , cobrandPassword
        , UserCredential
        , userUsername
        , userPassword
+       , UserRegistrationData
+       , userCredential
+       , userEmail
+       , userFirstName
+       , userLastName
+       , userMiddleInitial
+       , userAddress1
+       , userAddress2
+       , userCity
+       , userCountry
          -- ** JSON @'Value'@s from the API
          -- $value
        , CobrandSession
@@ -32,6 +42,7 @@ module Yodlee.Aggregation
        , _SiteLoginFormComponent
          -- * Endpoints
        , coblogin
+       , register3
        , login
        , searchSite
        , getSiteLoginForm
@@ -52,12 +63,13 @@ import           Network.Wreq             as HTTP
 import           Network.Wreq.Session     as HTTPSess
 import           Network.Wreq.Types
 
--- $cred
--- The @'CobrandCredential'@ and @'UserCredential'@ are data structures that
--- store the relevant credentials (username and password). The data constructors
--- are purposefully not exported. You are expected to construct those objects by
--- using @'def'@. You can then set the fields using the provided lenses, like
--- this:
+-- $apiin
+-- The API input data types store inputs to the APIs. This includes, for
+-- example, the @'CobrandCredential'@ and @'UserCredential'@ types, which are
+-- data structures that store the relevant credentials (username and password).
+-- The data constructors for all those types are purposefully not exported. You
+-- are expected to construct those objects by using @'def'@. You can then set
+-- the fields using the provided lenses, like this:
 --
 -- @
 -- 'set' 'cobrandUsername' "username" . 'set' 'cobrandPassword' "password" $ 'def'
@@ -95,6 +107,26 @@ $(declareLenses [d|
 -- password are @'T.empty'@.
 instance Default UserCredential where
   def = UserCredential T.empty T.empty
+
+-- | @'UserRegistrationData'@ is a data structure that contains credentials and
+-- the user profile, such as email, name, address, city, etc. Currently, not all
+-- are supported.
+$(declareLenses [d|
+  data UserRegistrationData = UserRegistrationData
+    { userCredential    :: UserCredential
+    , userEmail         :: T.Text
+    , userFirstName     :: Maybe T.Text
+    , userLastName      :: Maybe T.Text
+    , userMiddleInitial :: Maybe T.Text
+    , userAddress1      :: Maybe T.Text
+    , userAddress2      :: Maybe T.Text
+    , userCity          :: Maybe T.Text
+    , userCountry       :: Maybe T.Text
+    } deriving (Show)
+  |])
+
+instance Default UserRegistrationData where
+  def = UserRegistrationData def T.empty Nothing Nothing Nothing Nothing Nothing Nothing Nothing
 
 -- $value
 -- This section contains data structures such as @'CobrandSession'@,
@@ -194,6 +226,29 @@ coblogin credential = do
   guard $ has (responseBody . cobrandSessionToken) r
   hoistMaybe $ preview (responseBody . _Value . to CobrandSession) r
 
+-- | This accepts a consumer's details to register the consumer in the Yodlee
+-- system. After registration, the user is automatically logged in.
+register3 :: CobrandSession -> UserRegistrationData -> Yodlee UserSession
+register3 cbSess userReg = do
+  let regParamsReq =
+        [ "cobSessionToken" := view (_CobrandSession . cobrandSessionToken) cbSess
+        , "userCredentials.loginName" := view (userCredential . userUsername) userReg
+        , "userCredentials.password" := view (userCredential . userPassword) userReg
+        , "userCredentials.objectInstanceType" := ("com.yodlee.ext.login.PasswordCredentials" :: T.Text)
+        , "userProfile.emailAddress" := view userEmail userReg
+        ]
+  let optParamMap = [ ("userProfile.firstName", userFirstName)
+                          , ("userProfile.lastName", userLastName)
+                          , ("userProfile.middleInitial", userMiddleInitial)
+                          , ("userProfile.address1", userAddress1)
+                          , ("userProfile.address2", userAddress2)
+                          , ("userProfile.city", userCity)
+                          , ("userProfile.country", userCountry)
+                          ]
+  let regParamsOpt = catMaybes ((\(fieldName, fieldLens) -> (fieldName :=) <$> preview fieldLens userReg) <$> optParamMap)
+  r <- performAPIRequest "/jsonsdk/UserRegistration/register3" (regParamsOpt <> regParamsReq)
+  checkUserSession r
+
 -- | This enables the consumer to log in to the application. Once the consumer
 -- logs in, a @'UserSession'@ is created. It contains a token that will be used
 -- in subsequently API calls. The token expires every 30 minutes.
@@ -204,6 +259,10 @@ login cbSess userCred = do
     , "login" := view userUsername userCred
     , "password" := view userPassword userCred
     ]
+  checkUserSession r
+
+checkUserSession :: Response Value -> Yodlee UserSession
+checkUserSession r = do
   guard $ has (responseBody . userSessionToken) r
   hoistMaybe $ preview (responseBody . _Value . to UserSession) r
 
