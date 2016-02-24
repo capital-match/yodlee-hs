@@ -24,10 +24,15 @@ module Yodlee.Aggregation
        , _UserSession
        , Site
        , _Site
+       , SiteId
+       , siteId
+       , SiteLoginFormComponent
+       , _SiteLoginFormComponent
          -- * Endpoints
        , coblogin
        , login
        , searchSite
+       , getSiteLoginForm
   ) where
 
 import           Control.Error
@@ -37,10 +42,11 @@ import           Control.Monad.IO.Class
 import           Data.Aeson
 import           Data.Aeson.Lens
 import           Data.Default
+import           Data.Maybe
 import           Data.Monoid
-import qualified Data.Text              as T
-import           Network.Wreq           as HTTP
-import           Network.Wreq.Session   as HTTPSess
+import qualified Data.Text                as T
+import           Network.Wreq             as HTTP
+import           Network.Wreq.Session     as HTTPSess
 
 -- $cred
 -- The @'CobrandCredential'@ and @'UserCredential'@ are data structures that
@@ -87,11 +93,17 @@ instance Default UserCredential where
   def = UserCredential T.empty T.empty
 
 -- $value
--- @'CobrandSession'@, @'UserSession'@, and @'Site'@ are JSON data structures
--- returned by the Yodlee API. You can access the underlying @Value@ using the
--- corresponding @Getter@. You can extract the @Value@, but you (normally)
--- cannot modify those data structures without extracting the @Value@. You also
--- cannot construct them.
+-- This section contains data structures such as @'CobrandSession'@,
+-- @'UserSession'@, and @'Site'@, which are returned by the Yodlee API. They are
+-- implemented by wrapping a newtype around the raw @Value@. The reason is
+-- because Yodlee does not seem to document very well exactly which fields are
+-- present. To avoid the risk of the Haskell version getting out-of-date with
+-- the upstream structure, we will trade some type safety here.
+--
+-- You can access the underlying @'Value'@ using the corresponding @'Getter'@. You
+-- can extract the @'Value'@, but you normally cannot modify those data structures
+-- without extracting the @'Value'@ or construct them (unless you use
+-- @unsafeCoerce@ in which case you should know what you are doing).
 
 -- | @'CobrandSession'@ is the JSON data structure returned by the Yodlee API
 -- after a successful cobrand login.
@@ -120,6 +132,24 @@ newtype Site = Site Value deriving (Show)
 _Site :: Getter Site Value
 _Site = to (\(Site a) -> a)
 
+-- | @'SiteId'@ is a newtype wrapper for the site ID. You can get a @'SiteId'@
+-- by using the @'siteId'@ @'Getter'@.
+newtype SiteId = SiteId Integer deriving (Show)
+
+-- | This is the @'Getter'@ that allows you to get a @'SiteId'@ from a @'Site'@.
+siteId :: Getter Site SiteId
+siteId = to (fromJust <$> preview (_Site . key "siteId" . _Integer . to SiteId))
+
+-- | @'LoginFormComponent'@ is the JSON structure that corresponds to each field
+-- in the login form returned by the Yodlee API after a successful retrieval of
+-- login form for a site.
+newtype SiteLoginFormComponent = SiteLoginFormComponent Value deriving (Show)
+
+-- | This is the @'Getter'@ that allows you to extract the JSON @'Value'@ inside
+-- @'SiteLoginFormComponent'@.
+_SiteLoginFormComponent :: Getter SiteLoginFormComponent Value
+_SiteLoginFormComponent = to (\(SiteLoginFormComponent a) -> a)
+
 urlBase :: String
 urlBase = "https://rest.developer.yodlee.com/services/srest/restserver/v1.0"
 
@@ -142,7 +172,7 @@ coblogin session credential = runMaybeT $ do
     , "cobrandPassword" := view cobrandPassword credential
     ]
   r <- asValue bs
-  guard . isJust $ preview (responseBody . cobrandSessionToken) r
+  guard $ has (responseBody . cobrandSessionToken) r
   hoistMaybe $ preview (responseBody . _Value . to CobrandSession) r
 
 -- | This enables the consumer to log in to the application. Once the consumer
@@ -157,18 +187,40 @@ login httpSess cbSess userCred = runMaybeT $ do
     , "password" := view userPassword userCred
     ]
   r <- asValue bs
-  guard . isJust $ preview (responseBody . userSessionToken) r
+  guard $ has (responseBody . userSessionToken) r
   hoistMaybe $ preview (responseBody . _Value . to UserSession) r
 
 -- | This searches for sites. If the search string is found in the display name
 -- parameter or aka parameter or keywords parameter of any @'Site'@ object, that
 -- site will be included in this list of matching sites.
-searchSite :: HTTPSess.Session -> CobrandSession -> UserSession -> T.Text -> IO [Site]
-searchSite httpSess cbSess user site = do
+searchSite :: HTTPSess.Session -> CobrandSession -> UserSession -> T.Text -> IO (Maybe [Site])
+searchSite httpSess cbSess user site = runMaybeT $ do
   let url = urlBase <> "/jsonsdk/SiteTraversal/searchSite"
-  r <- asValue =<< HTTPSess.post httpSess url
+  bs <- liftIO $ HTTPSess.post httpSess url
     [ "cobSessionToken" := view (_CobrandSession . cobrandSessionToken) cbSess
     , "userSessionToken" := view (_UserSession . userSessionToken) user
     , "siteSearchString" := site
     ]
+  r <- asValue bs
+  -- This guard checks it contains a siteId. Do not remove it! The correctness of @siteId@ depends on it.
+  guard $ allOf (responseBody . _Array . traverse) (has (key "siteId" . _Integer)) r
   return $ toListOf (responseBody . _Array . traverse . to Site) r
+
+-- | This provides the login form associated with the requested site, given a
+-- @'SiteId'@. It is unknown why this needs to exist because @'searchSite'@
+-- already returns this information, but it's included as per recommendation
+-- from Yodlee. The login form comprises of the credential fields that are
+-- required for adding a member to that site. This call lets the consumers enter
+-- their credentials into the login form for the site they are trying to add.
+getSiteLoginForm :: HTTPSess.Session -> CobrandSession -> SiteId -> IO (Maybe [SiteLoginFormComponent])
+getSiteLoginForm httpSess cbSess (SiteId i) = runMaybeT $ do
+  let url = urlBase <> "/jsonsdk/SiteAccountManagement/getSiteLoginForm"
+  bs <- liftIO $ HTTPSess.post httpSess url
+    [ "cobSessionToken" := view (_CobrandSession . cobrandSessionToken) cbSess
+    , "siteId" := show i
+    ]
+  r <- asValue bs
+  -- Check that the conjunctionOp is 1, which is AND, i.e. the form fields form a product type. We don't want to deal with sum types.
+  -- By the way, the second key "conjuctionOp" is misspelled.
+  guard . (== Just 1) $ preview (responseBody . _Value . key "conjunctionOp" . key "conjuctionOp" . _Integer) r
+  return $ toListOf (responseBody . key "componentList" . _Array . traverse . to SiteLoginFormComponent) r
