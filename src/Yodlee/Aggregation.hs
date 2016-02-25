@@ -31,6 +31,14 @@ module Yodlee.Aggregation
        , SiteCredentialComponent
        , siteCredItemFormat
        , siteCredItemValue
+       , siteCredItemDisplayName
+       , siteCredItemTypeName
+       , siteCredItemName
+       , siteCredItemSize
+       , siteCredItemValueIdentifier
+       , siteCredItemValueMask
+       , siteCredItemIsEditable
+       , siteCredItemIsOptional
          -- ** JSON 'Value's from the API
          -- $value
        , CobrandSession
@@ -156,6 +164,56 @@ $(declareLenses [d|
 -- not a 'Lens'' to prevent modifications.
 siteCredItemFormat :: Getter SiteCredentialComponent Value
 siteCredItemFormat = siteCredItemFormatInternal
+
+-- | This is the 'Fold' that allows you to extract the @displayName@ property
+-- inside a 'SiteCredentialComponent'. This could have been a 'Getter' (indeed,
+-- it should, and using 'preview' on it will always return a 'Just' value).
+siteCredItemDisplayName :: Fold SiteCredentialComponent T.Text
+siteCredItemDisplayName = siteCredItemFormat . key "displayName" . _String
+
+-- | This is the 'Fold' that allows you to extract the @fieldType.typeName@
+-- property inside a 'SiteCredentialComponent'. This could have been a 'Getter'
+-- (indeed, it should, and using 'preview' on it will always return a 'Just'
+-- value).
+siteCredItemTypeName :: Fold SiteCredentialComponent T.Text
+siteCredItemTypeName = siteCredItemFormat . key "fieldType" . key "typeName" . _String
+
+-- | This is the 'Fold' that allows you to extract the @name@ property inside a
+-- 'SiteCredentialComponent'. This could have been a 'Getter' (indeed, it
+-- should, and using 'preview' on it will always return a 'Just' value).
+siteCredItemName :: Fold SiteCredentialComponent T.Text
+siteCredItemName = siteCredItemFormat . key "name" . _String
+
+-- | This is the 'Fold' that allows you to extract the @size@ property inside a
+-- 'SiteCredentialComponent'. This could have been a 'Getter' (indeed, it
+-- should, and using 'preview' on it will always return a 'Just' value).
+siteCredItemSize :: Fold SiteCredentialComponent Integer
+siteCredItemSize = siteCredItemFormat . key "size" . _Integer
+
+-- | This is the 'Fold' that allows you to extract the @valueIdentifier@
+-- property inside a 'SiteCredentialComponent'. This could have been a 'Getter'
+-- (indeed, it should, and using 'preview' on it will always return a 'Just'
+-- value).
+siteCredItemValueIdentifier :: Fold SiteCredentialComponent T.Text
+siteCredItemValueIdentifier = siteCredItemFormat . key "valueIdentifier" . _String
+
+-- | This is the 'Fold' that allows you to extract the @valueMask@ property
+-- inside a 'SiteCredentialComponent'. This could have been a 'Getter' (indeed,
+-- it should, and using 'preview' on it will always return a 'Just' value).
+siteCredItemValueMask :: Fold SiteCredentialComponent T.Text
+siteCredItemValueMask = siteCredItemFormat . key "valueMask" . _String
+
+-- | This is the 'Fold' that allows you to extract the @isEditable@ property
+-- inside a 'SiteCredentialComponent'. This could have been a 'Getter' (indeed,
+-- it should, and using 'preview' on it will always return a 'Just' value).
+siteCredItemIsEditable :: Fold SiteCredentialComponent Bool
+siteCredItemIsEditable = siteCredItemFormat . key "isEditable" . _Bool
+
+-- | This is the 'Fold' that allows you to extract the @isOptional@ property
+-- inside a 'SiteCredentialComponent'. This could have been a 'Getter' (indeed,
+-- it should, and using 'preview' on it will always return a 'Just' value).
+siteCredItemIsOptional :: Fold SiteCredentialComponent Bool
+siteCredItemIsOptional = siteCredItemFormat . key "isOptional" . _Bool
 
 -- $value
 -- This section contains data structures such as 'CobrandSession',
@@ -334,23 +392,24 @@ getSiteLoginForm cbSess (SiteId i) = do
   -- Check that the conjunctionOp is 1, which is AND, i.e. the form fields form a product type. We don't want to deal with sum types.
   -- By the way, the second key "conjuctionOp" is misspelled.
   guard . (== Just 1) $ preview (responseBody . _Value . key "conjunctionOp" . key "conjuctionOp" . _Integer) r
-  guard $ allOf (responseBody . key "componentList" . _Array . traverse) (\obj -> allOf (traverse . traverse) (`has'` obj) siteCredentialExpectedFields) r
-  return $ toListOf (responseBody . key "componentList" . _Array . to V.indexed . traverse . to (uncurry (SiteCredentialComponent T.empty))) r
+  let rv = toListOf (responseBody . key "componentList" . _Array . to V.indexed . traverse . to (uncurry (SiteCredentialComponent T.empty))) r
+  guard $ allOf traverse (\obj -> allOf (traverse . traverse) (`has'` obj) siteCredentialExpectedFields) rv
+  return rv
   where has' l = isJust . preview l
 
-siteCredentialExpectedFields :: [(C.ByteString, Getting (First T.Text) Value T.Text)]
+siteCredentialExpectedFields :: [(C.ByteString, Getting (First T.Text) SiteCredentialComponent T.Text)]
 siteCredentialExpectedFields =
-  [ ("displayName", key "displayName" . _String)
-  , ("fieldType.typeName", key "fieldType" . key "typeName" . _String)
-  , ("name", key "name" . _String)
-  , ("size", key "size" . _Integer . to show . to T.pack)
-  , ("valueIdentifier", key "valueIdentifier" . _String)
-  , ("valueMask", key "valueMask" . _String)
-  , ("isEditable", key "isEditable" . _Bool . to show . to T.pack . to T.toLower)
+  [ ("displayName", siteCredItemDisplayName)
+  , ("fieldType.typeName", siteCredItemTypeName)
+  , ("name", siteCredItemName)
+  , ("size", siteCredItemSize . to show . to T.pack)
+  , ("valueIdentifier", siteCredItemValueIdentifier)
+  , ("valueMask", siteCredItemValueMask)
+  , ("isEditable", siteCredItemIsEditable . to show . to T.pack . to T.toLower)
   ]
 
 siteCredentialRequiredFields :: [(C.ByteString, Getting (First T.Text) SiteCredentialComponent T.Text)]
-siteCredentialRequiredFields = [("value", siteCredItemValue)] <> over (traverse . traverse) (siteCredItemFormat .) siteCredentialExpectedFields
+siteCredentialRequiredFields = [("value", siteCredItemValue)] <> siteCredentialExpectedFields
 
 -- | This adds a member site account associated with a particular site.
 -- refresh is initiated for the item. This API is expected to be called after
