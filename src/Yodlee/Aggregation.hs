@@ -37,9 +37,6 @@ module Yodlee.Aggregation
        , siteCredItemTypeName
        , siteCredItemName
        , siteCredItemSize
-       , siteCredItemValueIdentifier
-       , siteCredItemValueMask
-       , siteCredItemIsEditable
        , siteCredItemIsOptional
          -- ** JSON 'Value's from the API
          -- $value
@@ -66,25 +63,27 @@ module Yodlee.Aggregation
        , fillInSiteCredentialComponents
   ) where
 
+import           Control.Concurrent.Async
 import           Control.Error
-import           Control.Exception.Base   (SomeException)
+import           Control.Exception.Base     (SomeException)
 import           Control.Lens.Combinators
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader
 import           Data.Aeson
 import           Data.Aeson.Lens
-import qualified Data.ByteString.Char8    as C
-import qualified Data.ByteString.Lazy.Char8    as CL
+import qualified Data.ByteString.Char8      as C
+import qualified Data.ByteString.Lazy.Char8 as CL
 import           Data.Default
 import           Data.Maybe
 import           Data.Monoid
-import qualified Data.Text                as T
-import qualified Data.Vector              as V
-import           Network.Wreq             as HTTP
-import           Network.Wreq.Session     as HTTPSess
+import           Data.String                (fromString)
+import qualified Data.Text                  as T
+import qualified Data.Text.Encoding         as T
+import qualified Data.Vector                as V
+import           Network.Wreq               as HTTP
+import           Network.Wreq.Session       as HTTPSess
 import           Network.Wreq.Types
-import Control.Concurrent.Async
 
 -- $apiin
 -- The API input data types store inputs to the APIs. This includes, for
@@ -196,25 +195,6 @@ siteCredItemName = siteCredItemFormat . key "name" . _String
 -- should, and using 'preview' on it will always return a 'Just' value).
 siteCredItemSize :: Fold SiteCredentialComponent Integer
 siteCredItemSize = siteCredItemFormat . key "size" . _Integer
-
--- | This is the 'Fold' that allows you to extract the @valueIdentifier@
--- property inside a 'SiteCredentialComponent'. This could have been a 'Getter'
--- (indeed, it should, and using 'preview' on it will always return a 'Just'
--- value).
-siteCredItemValueIdentifier :: Fold SiteCredentialComponent T.Text
-siteCredItemValueIdentifier = siteCredItemFormat . key "valueIdentifier" . _String
-
--- | This is the 'Fold' that allows you to extract the @valueMask@ property
--- inside a 'SiteCredentialComponent'. This could have been a 'Getter' (indeed,
--- it should, and using 'preview' on it will always return a 'Just' value).
-siteCredItemValueMask :: Fold SiteCredentialComponent T.Text
-siteCredItemValueMask = siteCredItemFormat . key "valueMask" . _String
-
--- | This is the 'Fold' that allows you to extract the @isEditable@ property
--- inside a 'SiteCredentialComponent'. This could have been a 'Getter' (indeed,
--- it should, and using 'preview' on it will always return a 'Just' value).
-siteCredItemIsEditable :: Fold SiteCredentialComponent Bool
-siteCredItemIsEditable = siteCredItemFormat . key "isEditable" . _Bool
 
 -- | This is the 'Fold' that allows you to extract the @isOptional@ property
 -- inside a 'SiteCredentialComponent'. This could have been a 'Getter' (indeed,
@@ -464,11 +444,20 @@ siteCredentialExpectedFields =
   [ ("displayName", siteCredItemDisplayName)
   , ("fieldType.typeName", siteCredItemTypeName)
   , ("name", siteCredItemName)
-  , ("size", siteCredItemSize . to show . to T.pack)
-  , ("valueIdentifier", siteCredItemValueIdentifier)
-  , ("valueMask", siteCredItemValueMask)
-  , ("isEditable", siteCredItemIsEditable . to show . to T.pack . to T.toLower)
+  , copyPrimitive "size"
+  , copyPrimitive "maxlength"
+  , copyString "valueIdentifier"
+  , copyString "valueMask"
+  , copyString "helpText"
+  , copyPrimitive "isEditable"
+  , copyPrimitive "isOptional"
+  , copyPrimitive "isEscaped"
+  , copyPrimitive "isMFA"
+  , copyPrimitive "isOptionalMFA"
   ]
+  where copyString f = (fromString f, siteCredItemFormat . key (fromString f) . _String)
+        copyPrimitive f = (fromString f, siteCredItemFormat . key (fromString f) . _Value . to encode . to CL.toStrict . to T.decodeUtf8)
+        -- Very hacky! We basically ignore types and re-encode the component in JSON and convert it.
 
 -- | This is a helper function that allows you to write a function to fill in a
 -- list of 'SiteCredentialComponent's. The function inspects a
