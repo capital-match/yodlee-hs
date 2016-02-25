@@ -60,6 +60,8 @@ module Yodlee.Aggregation
        , searchSite
        , getSiteLoginForm
        , addSiteAccount1
+         -- * Helper functions
+       , fillInSiteCredentialComponents
   ) where
 
 import           Control.Error
@@ -410,6 +412,16 @@ siteCredentialExpectedFields =
 
 siteCredentialRequiredFields :: [(C.ByteString, Getting (First T.Text) SiteCredentialComponent T.Text)]
 siteCredentialRequiredFields = [("value", siteCredItemValue)] <> siteCredentialExpectedFields
+
+-- | This is a helper function that allows you to write a function to fill in an
+-- empty 'SiteCredentialComponent'. The function inspects a 'Value' and tries to
+-- return a 'T.Text' in response. If it can fill in the field, it is expected to
+-- return a 'Just' value. Otherwise it is expected to return a 'Nothing' value.
+fillInSiteCredentialComponents :: (SiteCredentialComponent -> Maybe T.Text) -> [SiteCredentialComponent] -> [SiteCredentialComponent]
+fillInSiteCredentialComponents f rs = fillInOnce <$> rs
+  where fillInOnce r = case f r of
+          Nothing -> r
+          Just t -> set siteCredItemValue t r
 
 -- | This adds a member site account associated with a particular site.
 -- refresh is initiated for the item. This API is expected to be called after
