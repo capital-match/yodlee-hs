@@ -331,11 +331,22 @@ data ErrorAt = ErrorAt String Error
 tryAny :: IO a -> IO (Either SomeException a)
 tryAny action = withAsync action waitCatch
 
-performAPIRequest :: (Postable a) => String -> String -> a -> Yodlee (Response Value)
+performAPIRequestVerbose :: Bool
+performAPIRequestVerbose = True
+
+performAPIRequest :: (Show a, Postable a) => String -> String -> a -> Yodlee (Response Value)
 performAPIRequest whence urlPart postable = do
   session <- lift ask
   let url = urlBase <> urlPart
+  when performAPIRequestVerbose $ do
+    liftIO $ putStrLn "********** WILL PERFORM API REQUEST"
+    liftIO $ print url
+    liftIO $ print postable
   mbBs <- liftIO . tryAny $ HTTPSess.post session url postable
+  when performAPIRequestVerbose $ do
+    liftIO $ putStrLn "********** HAS PERFORMED API REQUEST"
+    liftIO $ print mbBs
+    liftIO $ putStrLn "********** DONE WITH API REQUEST"
   bs <- hoistEither $ fmapL (ErrorAt whence . HTTPFetchException) mbBs
   hoistEither $ note (ErrorAt whence (JSONParseFailed (view responseBody bs))) $ asValue bs
 
