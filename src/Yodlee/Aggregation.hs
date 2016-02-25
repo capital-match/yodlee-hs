@@ -291,12 +291,15 @@ data Error
   | JSONParseFailed CL.ByteString
     -- ^ This constructor represents a /syntax/ error in the JSON data returned
     -- from Yodlee. The 'C.ByteString' that cannot be parsed is included.
+  | JSONErrorObject Value
+    -- ^ This constructor represents Yodlee exceptions indicated in the JSON
+    -- object returned from Yodlee. It is likely caused by a /semantic/ error in
+    -- the input provided.
   | JSONValidationFailed Value
     -- ^ This constructor represents a /semantic/ error in the JSON data
     -- returned from Yodlee. The JSON 'Value' that cannot be interpreted is
-    -- included. This /may/ be caused by an error at the backend of Yodlee, but
-    -- it can also caused by a semantic error provided as input. (Yodlee returns
-    -- @200 OK@ for this kind of semantic errors.)
+    -- included. This /may/ be caused by an error at the backend of Yodlee, or
+    -- Yodlee has changed its specification of objects.
   | ArgumentValidationFailed
     -- ^ This constructor represents an error in one or more of the arguments
     -- passed to the function.
@@ -328,7 +331,10 @@ performAPIRequest whence urlPart postable = do
     liftIO $ print mbBs
     liftIO $ putStrLn "********** DONE WITH API REQUEST"
   bs <- hoistEither $ fmapL (ErrorAt whence . HTTPFetchException) mbBs
-  hoistEither $ note (ErrorAt whence (JSONParseFailed (view responseBody bs))) $ asValue bs
+  r <- hoistEither $ note (ErrorAt whence (JSONParseFailed (view responseBody bs))) $ asValue bs
+  when (preview (responseBody . key "errorOccurred" . _String) r == Just "true") $ -- I don't know why Yodlee decides to return true as a string.
+    hoistEither $ Left $ ErrorAt whence $ JSONErrorObject (view responseBody r)
+  return r
 
 assertOutputIsJust :: String -> Response Value -> Maybe a -> Yodlee a
 assertOutputIsJust whence resp = hoistEither . note (ErrorAt whence (JSONValidationFailed (view responseBody resp)))
