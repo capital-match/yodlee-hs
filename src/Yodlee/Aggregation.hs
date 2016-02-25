@@ -487,7 +487,7 @@ addSiteAccount1 cbSess user (SiteId i) siteCreds = do
   let whence = "addSiteAccount1"
   siteCredsValidated <- assertInputIsJust whence $ validateSiteCreds siteCreds
   let transformCredPiece cred name traversal = (("credentialFields[" <> view (siteCredItemIndex . to show . to C.pack) cred <> "]." <> name) :=) <$> preview traversal cred
-  let transformCred cred = uncurry (transformCredPiece cred) <$> (("name", siteCredItemValue . _Just) : siteCredentialExpectedFields)
+  let transformCred cred = uncurry (transformCredPiece cred) <$> (("value", siteCredItemValue . _Just) : siteCredentialExpectedFields)
   let transformed = concatMap transformCred siteCredsValidated
   credRequestParams <- assertInputIsJust whence . sequence $ transformed
   let requestParams = [ "cobSessionToken" := view (_CobrandSession . cobrandSessionToken) cbSess
