@@ -10,6 +10,8 @@ module Yodlee.Aggregation
          -- * Data types
        , Yodlee
        , runYodlee
+       , Error(..)
+       , ErrorAt(..)
          -- ** API Input types
          -- $apiin
        , CobrandCredential
@@ -65,6 +67,7 @@ module Yodlee.Aggregation
   ) where
 
 import           Control.Error
+import           Control.Exception.Base   (SomeException)
 import           Control.Lens.Combinators
 import           Control.Monad
 import           Control.Monad.IO.Class
@@ -72,6 +75,7 @@ import           Control.Monad.Reader
 import           Data.Aeson
 import           Data.Aeson.Lens
 import qualified Data.ByteString.Char8    as C
+import qualified Data.ByteString.Lazy.Char8    as CL
 import           Data.Default
 import           Data.Maybe
 import           Data.Monoid
@@ -80,6 +84,7 @@ import qualified Data.Vector              as V
 import           Network.Wreq             as HTTP
 import           Network.Wreq.Session     as HTTPSess
 import           Network.Wreq.Types
+import Control.Concurrent.Async
 
 -- $apiin
 -- The API input data types store inputs to the APIs. This includes, for
@@ -286,23 +291,62 @@ userSessionToken = key "userContext" . key "conversationCredentials" . key "sess
 -- | The 'Yodlee' monad is a type returned by all endpoint functions. This /may/
 -- become a @newtype@ in the future. The error type may also be more
 -- descriptive, i.e. not just a 'Nothing' in case of error.
-type Yodlee a = MaybeT (ReaderT HTTPSess.Session IO) a
+type Yodlee a = ExceptT ErrorAt (ReaderT HTTPSess.Session IO) a
 
 -- | The 'runYodlee' function takes an action described by the 'Yodlee'
 -- monad and executes it.
-runYodlee :: Yodlee a -> IO (Maybe a)
-runYodlee = HTTPSess.withSession . runReaderT . runMaybeT
+runYodlee :: Yodlee a -> IO (Either ErrorAt a)
+runYodlee = HTTPSess.withSession . runReaderT . runExceptT
 
 -- $endpoint
 -- Those functions correspond to the identically named Yodlee Aggregation REST
 -- APIs. Some functions have a number following them. I don't know why.
 
-performAPIRequest :: (Postable a) => String -> a -> Yodlee (Response Value)
-performAPIRequest urlPart postable = do
+-- | The 'Error' type encapsulates every kind of error that can result from the
+-- anything in the 'Yodlee' monad.
+data Error
+  = HTTPFetchException SomeException
+    -- ^ This constructor represents errors resulting from the HTTP fetch, i.e.
+    -- network errors, etc.
+  | JSONParseFailed CL.ByteString
+    -- ^ This constructor represents a /syntax/ error in the JSON data returned
+    -- from Yodlee. The 'C.ByteString' that cannot be parsed is included.
+  | JSONValidationFailed Value
+    -- ^ This constructor represents a /semantic/ error in the JSON data
+    -- returned from Yodlee. The JSON 'Value' that cannot be interpreted is
+    -- included. This /may/ be caused by an error at the backend of Yodlee, but
+    -- it can also caused by a semantic error provided as input. (Yodlee returns
+    -- @200 OK@ for this kind of semantic errors.)
+  | ArgumentValidationFailed
+    -- ^ This constructor represents an error in one or more of the arguments
+    -- passed to the function.
+  deriving (Show)
+
+-- | The 'ErrorAt' type contains an 'Error' and a 'String' describing whence the
+-- error comes.
+data ErrorAt = ErrorAt String Error
+  deriving (Show)
+
+-- | Perform an action and catch all synchronous exceptions.
+tryAny :: IO a -> IO (Either SomeException a)
+tryAny action = withAsync action waitCatch
+
+performAPIRequest :: (Postable a) => String -> String -> a -> Yodlee (Response Value)
+performAPIRequest whence urlPart postable = do
   session <- lift ask
   let url = urlBase <> urlPart
-  bs <- liftIO $ HTTPSess.post session url postable
-  hoistMaybe $ asValue bs
+  mbBs <- liftIO . tryAny $ HTTPSess.post session url postable
+  bs <- hoistEither $ fmapL (ErrorAt whence . HTTPFetchException) mbBs
+  hoistEither $ note (ErrorAt whence (JSONParseFailed (view responseBody bs))) $ asValue bs
+
+assertOutputIsJust :: String -> Response Value -> Maybe a -> Yodlee a
+assertOutputIsJust whence resp = hoistEither . note (ErrorAt whence (JSONValidationFailed (view responseBody resp)))
+
+assertOutputBool :: String -> Response Value -> Bool -> Yodlee ()
+assertOutputBool whence resp condition = unless condition . hoistEither . Left . ErrorAt whence $ JSONValidationFailed (view responseBody resp)
+
+assertInputIsJust :: String -> Maybe a -> Yodlee a
+assertInputIsJust whence = hoistEither . note (ErrorAt whence ArgumentValidationFailed)
 
 -- | This authenticates the cobrand. Once the cobrand is authenticated a
 -- 'CobrandSession' is created and the token within the 'CobrandSession' expires
@@ -311,17 +355,19 @@ performAPIRequest urlPart postable = do
 -- JSON response does not contain the expected fields.
 coblogin :: CobrandCredential -> Yodlee CobrandSession
 coblogin credential = do
-  r <- performAPIRequest "/authenticate/coblogin"
+  let whence = "coblogin"
+  r <- performAPIRequest whence "/authenticate/coblogin"
     [ "cobrandLogin" := view cobrandUsername credential
     , "cobrandPassword" := view cobrandPassword credential
     ]
-  guard $ has (responseBody . cobrandSessionToken) r
-  hoistMaybe $ preview (responseBody . _Value . to CobrandSession) r
+  assertOutputBool whence r $ has (responseBody . cobrandSessionToken) r
+  assertOutputIsJust whence r $ preview (responseBody . _Value . to CobrandSession) r
 
 -- | This accepts a consumer's details to register the consumer in the Yodlee
 -- system. After registration, the user is automatically logged in.
 register3 :: CobrandSession -> UserRegistrationData -> Yodlee UserSession
 register3 cbSess userReg = do
+  let whence = "register3"
   let regParamsReq =
         [ "cobSessionToken" := view (_CobrandSession . cobrandSessionToken) cbSess
         , "userCredentials.loginName" := view (userCredential . userUsername) userReg
@@ -338,38 +384,40 @@ register3 cbSess userReg = do
                           , ("userProfile.country", userCountry)
                           ]
   let regParamsOpt = catMaybes ((\(fieldName, fieldLens) -> (fieldName :=) <$> preview fieldLens userReg) <$> optParamMap)
-  r <- performAPIRequest "/jsonsdk/UserRegistration/register3" (regParamsOpt <> regParamsReq)
-  checkUserSession r
+  r <- performAPIRequest whence "/jsonsdk/UserRegistration/register3" (regParamsOpt <> regParamsReq)
+  checkUserSession whence r
 
 -- | This enables the consumer to log in to the application. Once the consumer
 -- logs in, a 'UserSession' is created. It contains a token that will be used in
 -- subsequently API calls. The token expires every 30 minutes.
 login :: CobrandSession -> UserCredential -> Yodlee UserSession
 login cbSess userCred = do
-  r <- performAPIRequest "/authenticate/login"
+  let whence = "login"
+  r <- performAPIRequest whence "/authenticate/login"
     [ "cobSessionToken" := view (_CobrandSession . cobrandSessionToken) cbSess
     , "login" := view userUsername userCred
     , "password" := view userPassword userCred
     ]
-  checkUserSession r
+  checkUserSession whence r
 
-checkUserSession :: Response Value -> Yodlee UserSession
-checkUserSession r = do
-  guard $ has (responseBody . userSessionToken) r
-  hoistMaybe $ preview (responseBody . _Value . to UserSession) r
+checkUserSession :: String -> Response Value -> Yodlee UserSession
+checkUserSession whence r = do
+  assertOutputBool whence r $ has (responseBody . userSessionToken) r
+  assertOutputIsJust whence r $ preview (responseBody . _Value . to UserSession) r
 
 -- | This searches for sites. If the search string is found in the display name
 -- parameter or aka parameter or keywords parameter of any 'Site' object, that
 -- site will be included in this list of matching sites.
 searchSite :: CobrandSession -> UserSession -> T.Text -> Yodlee [Site]
 searchSite cbSess user site = do
-  r <- performAPIRequest "/jsonsdk/SiteTraversal/searchSite"
+  let whence = "searchSite"
+  r <- performAPIRequest whence "/jsonsdk/SiteTraversal/searchSite"
     [ "cobSessionToken" := view (_CobrandSession . cobrandSessionToken) cbSess
     , "userSessionToken" := view (_UserSession . userSessionToken) user
     , "siteSearchString" := site
     ]
   -- This guard checks it contains a siteId. Do not remove it! The correctness of @siteId@ depends on it.
-  guard $ allOf (responseBody . _Array . traverse) (has (key "siteId" . _Integer)) r
+  assertOutputBool whence r $ allOf (responseBody . _Array . traverse) (has (key "siteId" . _Integer)) r
   return $ toListOf (responseBody . _Array . traverse . to Site) r
 
 -- | This is a 'Fold' that allows you to directly obtain a list of
@@ -387,15 +435,16 @@ siteLoginForm = _Site . key "loginForms" . _Array . to V.indexed . traverse . to
 -- credentials into the login form for the site they are trying to add.
 getSiteLoginForm :: CobrandSession -> SiteId -> Yodlee [SiteCredentialComponent]
 getSiteLoginForm cbSess (SiteId i) = do
-  r <- performAPIRequest "/jsonsdk/SiteAccountManagement/getSiteLoginForm"
+  let whence = "getSiteLoginForm"
+  r <- performAPIRequest whence "/jsonsdk/SiteAccountManagement/getSiteLoginForm"
     [ "cobSessionToken" := view (_CobrandSession . cobrandSessionToken) cbSess
     , "siteId" := show i
     ]
   -- Check that the conjunctionOp is 1, which is AND, i.e. the form fields form a product type. We don't want to deal with sum types.
   -- By the way, the second key "conjuctionOp" is misspelled.
-  guard . (== Just 1) $ preview (responseBody . _Value . key "conjunctionOp" . key "conjuctionOp" . _Integer) r
+  assertOutputBool whence r . (== Just 1) $ preview (responseBody . _Value . key "conjunctionOp" . key "conjuctionOp" . _Integer) r
   let rv = toListOf (responseBody . key "componentList" . _Array . to V.indexed . traverse . to (uncurry (SiteCredentialComponent Nothing))) r
-  guard $ allOf traverse (\obj -> allOf (traverse . traverse) (`has'` obj) siteCredentialExpectedFields) rv
+  assertOutputBool whence r $ allOf traverse (\obj -> allOf (traverse . traverse) (`has'` obj) siteCredentialExpectedFields) rv
   return rv
   where has' l = isJust . preview l
 
@@ -435,15 +484,16 @@ validateSiteCreds creds = sequence . catMaybes $ go <$> creds
 -- @getSiteInfo@ or 'searchSite'.
 addSiteAccount1 :: CobrandSession -> UserSession -> SiteId -> [SiteCredentialComponent] -> Yodlee SiteAccount
 addSiteAccount1 cbSess user (SiteId i) siteCreds = do
-  siteCredsValidated <- hoistMaybe $ validateSiteCreds siteCreds
+  let whence = "addSiteAccount1"
+  siteCredsValidated <- assertInputIsJust whence $ validateSiteCreds siteCreds
   let transformCredPiece cred name traversal = (("credentialFields[" <> view (siteCredItemIndex . to show . to C.pack) cred <> "]." <> name) :=) <$> preview traversal cred
   let transformCred cred = uncurry (transformCredPiece cred) <$> (("name", siteCredItemValue . _Just) : siteCredentialExpectedFields)
   let transformed = concatMap transformCred siteCredsValidated
-  credRequestParams <- hoistMaybe . sequence $ transformed
+  credRequestParams <- assertInputIsJust whence . sequence $ transformed
   let requestParams = [ "cobSessionToken" := view (_CobrandSession . cobrandSessionToken) cbSess
                       , "userSessionToken" := view (_UserSession . userSessionToken) user
                       , "siteId" := show i
                       , "credentialFields.enclosedType" := ("com.yodlee.common.FieldInfoSingle" :: T.Text) -- XXX
                       ] <> credRequestParams
-  r <- performAPIRequest "/jsonsdk/SiteAccountManagement/addSiteAccount1" requestParams
-  hoistMaybe $ preview (responseBody . _Value . to SiteAccount) r
+  r <- performAPIRequest whence "/jsonsdk/SiteAccountManagement/addSiteAccount1" requestParams
+  assertOutputIsJust whence r $ preview (responseBody . _Value . to SiteAccount) r
