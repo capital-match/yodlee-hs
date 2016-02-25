@@ -1,5 +1,6 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell   #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE OverloadedStrings  #-}
+{-# LANGUAGE TemplateHaskell    #-}
 
 -- | This module provides functions that interfaces with the Yodlee Aggregation
 -- REST API. This is a thin wrapper around the API.
@@ -80,6 +81,7 @@ import           Data.Monoid
 import           Data.String                (fromString)
 import qualified Data.Text                  as T
 import qualified Data.Text.Encoding         as T
+import qualified Data.Typeable              as Typeable
 import qualified Data.Vector                as V
 import           Network.Wreq               as HTTP
 import           Network.Wreq.Session       as HTTPSess
@@ -109,7 +111,7 @@ $(declareLenses [d|
   data CobrandCredential = CobrandCredential
     { cobrandUsername :: T.Text
     , cobrandPassword :: T.Text
-    } deriving (Show)
+    } deriving (Show, Typeable.Typeable)
   |])
 
 -- | The default value for 'CobrandCredential' is such that both the username
@@ -122,7 +124,7 @@ $(declareLenses [d|
   data UserCredential = UserCredential
     { userUsername :: T.Text
     , userPassword :: T.Text
-    } deriving (Show)
+    } deriving (Show, Typeable.Typeable)
   |])
 
 -- | The default value for 'UserCredential' is such that both the username and
@@ -144,7 +146,7 @@ $(declareLenses [d|
     , userAddress2      :: Maybe T.Text
     , userCity          :: Maybe T.Text
     , userCountry       :: Maybe T.Text
-    } deriving (Show)
+    } deriving (Show, Typeable.Typeable)
   |])
 
 instance Default UserRegistrationData where
@@ -162,7 +164,7 @@ $(declareLenses [d|
     { siteCredItemValue :: Maybe T.Text
     , siteCredItemIndex :: Int -- not exported
     , siteCredItemFormatInternal :: Value
-    } deriving (Show)
+    } deriving (Show, Typeable.Typeable)
   |])
 
 -- | This is the 'Getter' that allows you to extract the JSON 'Value' inside
@@ -300,9 +302,9 @@ data Error
     -- returned from Yodlee. The JSON 'Value' that cannot be interpreted is
     -- included. This /may/ be caused by an error at the backend of Yodlee, or
     -- Yodlee has changed its specification of objects.
-  | ArgumentValidationFailed
+  | ArgumentValidationFailed Typeable.TypeRep
     -- ^ This constructor represents an error in one or more of the arguments
-    -- passed to the function.
+    -- passed to the function. The type of the erred argument is provided.
   deriving (Show)
 
 -- | The 'ErrorAt' type contains an 'Error' and a 'String' describing whence the
@@ -342,8 +344,8 @@ assertOutputIsJust whence resp = hoistEither . note (ErrorAt whence (JSONValidat
 assertOutputBool :: String -> Response Value -> Bool -> Yodlee ()
 assertOutputBool whence resp condition = unless condition . hoistEither . Left . ErrorAt whence $ JSONValidationFailed (view responseBody resp)
 
-assertInputIsJust :: String -> Maybe a -> Yodlee a
-assertInputIsJust whence = hoistEither . note (ErrorAt whence ArgumentValidationFailed)
+assertInputIsJust :: (Typeable.Typeable c) => String -> c -> Maybe a -> Yodlee a
+assertInputIsJust whence arg = hoistEither . note (ErrorAt whence (ArgumentValidationFailed (Typeable.typeOf arg)))
 
 -- | This authenticates the cobrand. Once the cobrand is authenticated a
 -- 'CobrandSession' is created and the token within the 'CobrandSession' expires
@@ -491,11 +493,11 @@ validateSiteCreds creds = sequence . catMaybes $ go <$> creds
 addSiteAccount1 :: CobrandSession -> UserSession -> SiteId -> [SiteCredentialComponent] -> Yodlee SiteAccount
 addSiteAccount1 cbSess user (SiteId i) siteCreds = do
   let whence = "addSiteAccount1"
-  siteCredsValidated <- assertInputIsJust whence $ validateSiteCreds siteCreds
+  siteCredsValidated <- assertInputIsJust whence siteCreds $ validateSiteCreds siteCreds
   let transformCredPiece cred name traversal = (("credentialFields[" <> view (siteCredItemIndex . to show . to C.pack) cred <> "]." <> name) :=) <$> preview traversal cred
   let transformCred cred = uncurry (transformCredPiece cred) <$> (("value", siteCredItemValue . _Just) : siteCredentialExpectedFields)
   let transformed = concatMap transformCred siteCredsValidated
-  credRequestParams <- assertInputIsJust whence . sequence $ transformed
+  credRequestParams <- assertInputIsJust whence siteCreds . sequence $ transformed
   let requestParams = [ "cobSessionToken" := view (_CobrandSession . cobrandSessionToken) cbSess
                       , "userSessionToken" := view (_UserSession . userSessionToken) user
                       , "siteId" := show i
