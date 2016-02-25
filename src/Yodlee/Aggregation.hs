@@ -155,7 +155,7 @@ instance Default UserRegistrationData where
 -- credential may then be added by using the 'Lens'' called 'siteCredItemValue'.
 $(declareLenses [d|
   data SiteCredentialComponent = SiteCredentialComponent
-    { siteCredItemValue :: T.Text
+    { siteCredItemValue :: Maybe T.Text
     , siteCredItemIndex :: Int -- not exported
     , siteCredItemFormatInternal :: Value
     } deriving (Show)
@@ -377,7 +377,7 @@ searchSite cbSess user site = do
 -- 'getSiteLoginForm' to achieve the same thing with an HTTP call in 'IO'. (But
 -- why?)
 siteLoginForm :: Fold Site SiteCredentialComponent
-siteLoginForm = _Site . key "loginForms" . _Array . to V.indexed . traverse . to (uncurry (SiteCredentialComponent T.empty))
+siteLoginForm = _Site . key "loginForms" . _Array . to V.indexed . traverse . to (uncurry (SiteCredentialComponent Nothing))
 
 -- | This provides the login form associated with the requested site, given a
 -- 'SiteId'. It is unknown why this needs to exist because 'searchSite' already
@@ -394,7 +394,7 @@ getSiteLoginForm cbSess (SiteId i) = do
   -- Check that the conjunctionOp is 1, which is AND, i.e. the form fields form a product type. We don't want to deal with sum types.
   -- By the way, the second key "conjuctionOp" is misspelled.
   guard . (== Just 1) $ preview (responseBody . _Value . key "conjunctionOp" . key "conjuctionOp" . _Integer) r
-  let rv = toListOf (responseBody . key "componentList" . _Array . to V.indexed . traverse . to (uncurry (SiteCredentialComponent T.empty))) r
+  let rv = toListOf (responseBody . key "componentList" . _Array . to V.indexed . traverse . to (uncurry (SiteCredentialComponent Nothing))) r
   guard $ allOf traverse (\obj -> allOf (traverse . traverse) (`has'` obj) siteCredentialExpectedFields) rv
   return rv
   where has' l = isJust . preview l
@@ -410,18 +410,24 @@ siteCredentialExpectedFields =
   , ("isEditable", siteCredItemIsEditable . to show . to T.pack . to T.toLower)
   ]
 
-siteCredentialRequiredFields :: [(C.ByteString, Getting (First T.Text) SiteCredentialComponent T.Text)]
-siteCredentialRequiredFields = [("value", siteCredItemValue)] <> siteCredentialExpectedFields
-
--- | This is a helper function that allows you to write a function to fill in an
--- empty 'SiteCredentialComponent'. The function inspects a 'Value' and tries to
--- return a 'T.Text' in response. If it can fill in the field, it is expected to
--- return a 'Just' value. Otherwise it is expected to return a 'Nothing' value.
+-- | This is a helper function that allows you to write a function to fill in a
+-- list of 'SiteCredentialComponent's. The function inspects a
+-- 'SiteCredentialComponent' and tries to return a 'T.Text' in response. If it
+-- can fill in the field, it is expected to return a 'Just' value. Otherwise it
+-- is expected to return a 'Nothing' value. This is a helper function in the
+-- sense that it uses only operations already exposed in the public API.
 fillInSiteCredentialComponents :: (SiteCredentialComponent -> Maybe T.Text) -> [SiteCredentialComponent] -> [SiteCredentialComponent]
 fillInSiteCredentialComponents f rs = fillInOnce <$> rs
   where fillInOnce r = case f r of
           Nothing -> r
-          Just t -> set siteCredItemValue t r
+          Just t -> set siteCredItemValue (Just t) r
+
+validateSiteCreds :: [SiteCredentialComponent] -> Maybe [SiteCredentialComponent]
+validateSiteCreds creds = sequence . catMaybes $ go <$> creds
+  where go c
+          | has (siteCredItemValue . _Just) c = Just (Just c)        -- Keep
+          | preview siteCredItemIsOptional c == Just True = Nothing  -- Omit
+          | otherwise = Just Nothing                                 -- Fail
 
 -- | This adds a member site account associated with a particular site.
 -- refresh is initiated for the item. This API is expected to be called after
@@ -429,9 +435,10 @@ fillInSiteCredentialComponents f rs = fillInOnce <$> rs
 -- @getSiteInfo@ or 'searchSite'.
 addSiteAccount1 :: CobrandSession -> UserSession -> SiteId -> [SiteCredentialComponent] -> Yodlee SiteAccount
 addSiteAccount1 cbSess user (SiteId i) siteCreds = do
+  siteCredsValidated <- hoistMaybe $ validateSiteCreds siteCreds
   let transformCredPiece cred name traversal = (("credentialFields[" <> view (siteCredItemIndex . to show . to C.pack) cred <> "]." <> name) :=) <$> preview traversal cred
-  let transformCred cred = uncurry (transformCredPiece cred) <$> siteCredentialRequiredFields
-  let transformed = concatMap transformCred siteCreds
+  let transformCred cred = uncurry (transformCredPiece cred) <$> (("name", siteCredItemValue . _Just) : siteCredentialExpectedFields)
+  let transformed = concatMap transformCred siteCredsValidated
   credRequestParams <- hoistMaybe . sequence $ transformed
   let requestParams = [ "cobSessionToken" := view (_CobrandSession . cobrandSessionToken) cbSess
                       , "userSessionToken" := view (_UserSession . userSessionToken) user
