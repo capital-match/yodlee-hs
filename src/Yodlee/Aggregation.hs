@@ -42,6 +42,8 @@ module Yodlee.Aggregation
        , siteLoginForm
        , SiteId
        , siteId
+       , SiteAccount
+       , _SiteAccount
          -- * Endpoints
          -- $endpoints
        , coblogin
@@ -49,6 +51,7 @@ module Yodlee.Aggregation
        , login
        , searchSite
        , getSiteLoginForm
+       , addSiteAccount1
   ) where
 
 import           Control.Error
@@ -58,10 +61,12 @@ import           Control.Monad.IO.Class
 import           Control.Monad.Reader
 import           Data.Aeson
 import           Data.Aeson.Lens
+import qualified Data.ByteString.Char8    as C
 import           Data.Default
 import           Data.Maybe
 import           Data.Monoid
 import qualified Data.Text                as T
+import qualified Data.Vector              as V
 import           Network.Wreq             as HTTP
 import           Network.Wreq.Session     as HTTPSess
 import           Network.Wreq.Types
@@ -141,6 +146,7 @@ instance Default UserRegistrationData where
 $(declareLenses [d|
   data SiteCredentialComponent = SiteCredentialComponent
     { siteCredItemValue :: T.Text
+    , siteCredItemIndex :: Int -- not exported
     , siteCredItemFormatInternal :: Value
     } deriving (Show)
   |])
@@ -198,6 +204,15 @@ newtype SiteId = SiteId Integer deriving (Show)
 -- | This is the 'Getter' that allows you to get a 'SiteId' from a 'Site'.
 siteId :: Getter Site SiteId
 siteId = to (fromJust <$> preview (_Site . key "siteId" . _Integer . to SiteId))
+
+-- | 'SiteAccount' is the JSON data structure returned by the Yodlee API after
+-- associating a customer with a site.
+newtype SiteAccount = SiteAccount Value deriving (Show)
+
+-- | This is the 'Getter' that allows you to extract the JSON 'Value' inside
+-- a 'SiteAccount'.
+_SiteAccount :: Getter SiteAccount Value
+_SiteAccount = to (\(SiteAccount a) -> a)
 
 urlBase :: String
 urlBase = "https://rest.developer.yodlee.com/services/srest/restserver/v1.0"
@@ -302,7 +317,7 @@ searchSite cbSess user site = do
 -- 'getSiteLoginForm' to achieve the same thing with an HTTP call in 'IO'. (But
 -- why?)
 siteLoginForm :: Fold Site SiteCredentialComponent
-siteLoginForm = _Site . key "loginForms" . _Array . traverse . to (SiteCredentialComponent T.empty)
+siteLoginForm = _Site . key "loginForms" . _Array . to V.indexed . traverse . to (uncurry (SiteCredentialComponent T.empty))
 
 -- | This provides the login form associated with the requested site, given a
 -- 'SiteId'. It is unknown why this needs to exist because 'searchSite' already
@@ -319,4 +334,38 @@ getSiteLoginForm cbSess (SiteId i) = do
   -- Check that the conjunctionOp is 1, which is AND, i.e. the form fields form a product type. We don't want to deal with sum types.
   -- By the way, the second key "conjuctionOp" is misspelled.
   guard . (== Just 1) $ preview (responseBody . _Value . key "conjunctionOp" . key "conjuctionOp" . _Integer) r
-  return $ toListOf (responseBody . key "componentList" . _Array . traverse . to (SiteCredentialComponent T.empty)) r
+  guard $ allOf (responseBody . key "componentList" . _Array . traverse) (\obj -> allOf (traverse . traverse) (`has'` obj) siteCredentialExpectedFields) r
+  return $ toListOf (responseBody . key "componentList" . _Array . to V.indexed . traverse . to (uncurry (SiteCredentialComponent T.empty))) r
+  where has' l = isJust . preview l
+
+siteCredentialExpectedFields :: [(C.ByteString, Getting (First T.Text) Value T.Text)]
+siteCredentialExpectedFields =
+  [ ("displayName", key "displayName" . _String)
+  , ("fieldType.typeName", key "fieldType" . key "typeName" . _String)
+  , ("name", key "name" . _String)
+  , ("size", key "size" . _Integer . to show . to T.pack)
+  , ("valueIdentifier", key "valueIdentifier" . _String)
+  , ("valueMask", key "valueMask" . _String)
+  , ("isEditable", key "isEditable" . _Bool . to show . to T.pack . to T.toLower)
+  ]
+
+siteCredentialRequiredFields :: [(C.ByteString, Getting (First T.Text) SiteCredentialComponent T.Text)]
+siteCredentialRequiredFields = [("value", siteCredItemValue)] <> over (traverse . traverse) (siteCredItemFormat .) siteCredentialExpectedFields
+
+-- | This adds a member site account associated with a particular site.
+-- refresh is initiated for the item. This API is expected to be called after
+-- getting a login form for a particular site using 'getSiteLoginForm' or
+-- @getSiteInfo@ or 'searchSite'.
+addSiteAccount1 :: CobrandSession -> UserSession -> SiteId -> [SiteCredentialComponent] -> Yodlee SiteAccount
+addSiteAccount1 cbSess user (SiteId i) siteCreds = do
+  let transformCredPiece cred name traversal = (("credentialFields[" <> view (siteCredItemIndex . to show . to C.pack) cred <> "]." <> name) :=) <$> preview traversal cred
+  let transformCred cred = uncurry (transformCredPiece cred) <$> siteCredentialRequiredFields
+  let transformed = concatMap transformCred siteCreds
+  credRequestParams <- hoistMaybe . sequence $ transformed
+  let requestParams = [ "cobSessionToken" := view (_CobrandSession . cobrandSessionToken) cbSess
+                      , "userSessionToken" := view (_UserSession . userSessionToken) user
+                      , "siteId" := show i
+                      , "credentialFields.enclosedType" := ("com.yodlee.common.FieldInfoSingle" :: T.Text) -- XXX
+                      ] <> credRequestParams
+  r <- performAPIRequest "/jsonsdk/SiteAccountManagement/addSiteAccount1" requestParams
+  hoistMaybe $ preview (responseBody . _Value . to SiteAccount) r
