@@ -250,3 +250,18 @@ addSiteAccount1 cbSess user site siteCreds = do
   r <- performAPIRequest whence "/jsonsdk/SiteAccountManagement/addSiteAccount1" requestParams
   assertOutputBool whence r $ has (responseBody . siteAccountId) r
   assertOutputIsJust whence r $ preview (responseBody . _Value . to SiteAccount) r
+
+-- | This retrieves the intermediate response for MFA enabled sites and provides
+-- the MFA related field information that can be one of the following types:
+-- image, security question, or token. This is a non-blocking API. The API will
+-- return immediately if the intermediate response is not yet available.
+getMFAResponseForSite :: CobrandSession -> UserSession -> SiteAccount -> Yodlee MFARefresh
+getMFAResponseForSite cbSess user siteAcc = do
+  let whence = "getMFAResponseForSite"
+  siteAccId <- assertInputIsJust whence siteAcc $ preview (_SiteAccount . siteAccountId) siteAcc
+  let requestParams = [ "cobSessionToken" := view (_CobrandSession . cobrandSessionToken) cbSess
+                      , "userSessionToken" := view (_UserSession . userSessionToken) user
+                      , "memSiteAccId" := show siteAccId
+                      ]
+  r <- performAPIRequest whence "/jsonsdk/Refresh/getMFAResponseForSite" requestParams
+  assertOutputIsJust whence r $ preview (responseBody . _Value . to MFARefresh) r

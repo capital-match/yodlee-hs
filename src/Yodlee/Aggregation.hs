@@ -46,6 +46,8 @@ module Yodlee.Aggregation
        , siteLoginForm
        , SiteAccount
        , _SiteAccount
+       , MFARefresh
+       , _MFARefresh
          -- * Endpoints
          -- $endpoints
        , coblogin
@@ -54,6 +56,7 @@ module Yodlee.Aggregation
        , searchSite
        , getSiteLoginForm
        , addSiteAccount1
+       , getMFAResponseForSite
          -- * Helper functions
        , fillInSiteCredentialComponents
   ) where

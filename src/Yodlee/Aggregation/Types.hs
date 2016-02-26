@@ -183,6 +183,15 @@ newtype SiteAccount = SiteAccount Value deriving (Show)
 _SiteAccount :: Getter SiteAccount Value
 _SiteAccount = to (\(SiteAccount a) -> a)
 
+-- | 'SiteAccount' is the JSON data structure returned by the Yodlee API after
+-- getting MFA response from a site.
+newtype MFARefresh = MFARefresh Value deriving (Show)
+
+-- | This is the 'Getter' that allows you to extract the JSON 'Value' inside
+-- a 'SiteAccount'.
+_MFARefresh :: Getter MFARefresh Value
+_MFARefresh = to (\(MFARefresh a) -> a)
+
 
 -- | The 'Yodlee' monad is a type returned by all endpoint functions. This /may/
 -- become a @newtype@ in the future. The error type may also be more
