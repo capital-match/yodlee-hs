@@ -15,8 +15,8 @@ import           Data.Default
 import           Data.Maybe
 import qualified Data.Text                  as T
 import qualified Data.Typeable              as Typeable
+import           Network.Wreq.Lens          as HTTP
 import           Network.Wreq.Session       as HTTPSess
-
 
 -- $apiin
 -- The API input data types store inputs to the APIs. This includes, for
@@ -209,6 +209,9 @@ data Error
   = HTTPFetchException SomeException
     -- ^ This constructor represents errors resulting from the HTTP fetch, i.e.
     -- network errors, etc.
+  | UnexpectedHTTPStatus HTTP.Status
+    -- ^ This constructor represents errors resulting from an unexpected HTTP
+    -- status code. The offending 'HTTP.Status' is returned.
   | JSONParseFailed CL.ByteString
     -- ^ This constructor represents a /syntax/ error in the JSON data returned
     -- from Yodlee. The 'C.ByteString' that cannot be parsed is included.

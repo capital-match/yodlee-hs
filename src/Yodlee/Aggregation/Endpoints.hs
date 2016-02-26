@@ -43,6 +43,9 @@ tryAny action = withAsync action waitCatch
 performAPIRequestVerbose :: Bool
 performAPIRequestVerbose = True
 
+httpOptions :: Options
+httpOptions = set HTTP.checkStatus (Just (\_ _ _ -> Nothing)) defaults
+
 performAPIRequest :: (Show a, Postable a) => String -> String -> a -> Yodlee (Response Value)
 performAPIRequest whence urlPart postable = do
   session <- lift ask
@@ -51,12 +54,15 @@ performAPIRequest whence urlPart postable = do
     liftIO $ putStrLn "********** WILL PERFORM API REQUEST"
     liftIO $ print url
     liftIO $ print postable
-  mbBs <- liftIO . tryAny $ HTTPSess.post session url postable
+  mbBs <- liftIO . tryAny $ HTTPSess.postWith httpOptions session url postable
   when performAPIRequestVerbose $ do
     liftIO $ putStrLn "********** HAS PERFORMED API REQUEST"
     liftIO $ print mbBs
     liftIO $ putStrLn "********** DONE WITH API REQUEST"
   bs <- hoistEither $ fmapL (ErrorAt whence . HTTPFetchException) mbBs
+  let expectedStatus = 200 -- This may become an argument in the future.
+  unless (view (responseStatus . statusCode) bs == expectedStatus) $
+    hoistEither $ Left $ ErrorAt whence $ UnexpectedHTTPStatus (view responseStatus bs)
   r <- hoistEither $ note (ErrorAt whence (JSONParseFailed (view responseBody bs))) $ asValue bs
   when (preview (responseBody . key "errorOccurred" . _String) r == Just "true") $ -- I don't know why Yodlee decides to return true as a string.
     hoistEither $ Left $ ErrorAt whence $ JSONErrorObject (view responseBody r)
