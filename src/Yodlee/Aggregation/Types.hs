@@ -12,7 +12,6 @@ import           Data.Aeson
 import           Data.Aeson.Lens
 import qualified Data.ByteString.Lazy.Char8 as CL
 import           Data.Default
-import           Data.Maybe
 import qualified Data.Text                  as T
 import qualified Data.Typeable              as Typeable
 import           Network.Wreq.Lens          as HTTP
@@ -174,14 +173,6 @@ newtype Site = Site Value deriving (Show)
 -- 'Site'.
 _Site :: Getter Site Value
 _Site = to (\(Site a) -> a)
-
--- | 'SiteId' is a newtype wrapper for the site ID. You can get a 'SiteId' by
--- using the 'siteId' 'Getter'.
-newtype SiteId = SiteId Integer deriving (Show)
-
--- | This is the 'Getter' that allows you to get a 'SiteId' from a 'Site'.
-siteId :: Getter Site SiteId
-siteId = to (fromJust <$> preview (_Site . key "siteId" . _Integer . to SiteId))
 
 -- | 'SiteAccount' is the JSON data structure returned by the Yodlee API after
 -- associating a customer with a site.

@@ -44,8 +44,6 @@ module Yodlee.Aggregation
        , Site
        , _Site
        , siteLoginForm
-       , SiteId
-       , siteId
        , SiteAccount
        , _SiteAccount
          -- * Endpoints

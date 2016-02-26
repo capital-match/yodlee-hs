@@ -32,6 +32,12 @@ cobrandSessionToken = key "cobrandConversationCredentials" . key "sessionToken" 
 userSessionToken :: Traversal' Value T.Text
 userSessionToken = key "userContext" . key "conversationCredentials" . key "sessionToken" . _String
 
+siteId :: Traversal' Value Integer
+siteId = key "siteId" . _Integer
+
+siteAccountId :: Traversal' Value Integer
+siteAccountId = key "siteAccountId" . _Integer
+
 -- $endpoint
 -- Those functions correspond to the identically named Yodlee Aggregation REST
 -- APIs. Some functions have a number following them. I don't know why.
@@ -162,9 +168,10 @@ siteLoginForm = _Site . key "loginForms" . _Array . to V.indexed . traverse . to
 -- Yodlee. The login form comprises of the credential fields that are required
 -- for adding a member to that site. This call lets the consumers enter their
 -- credentials into the login form for the site they are trying to add.
-getSiteLoginForm :: CobrandSession -> SiteId -> Yodlee [SiteCredentialComponent]
-getSiteLoginForm cbSess (SiteId i) = do
+getSiteLoginForm :: CobrandSession -> Site -> Yodlee [SiteCredentialComponent]
+getSiteLoginForm cbSess site = do
   let whence = "getSiteLoginForm"
+  i <- assertInputIsJust whence site $ preview (_Site . siteId) site
   r <- performAPIRequest whence "/jsonsdk/SiteAccountManagement/getSiteLoginForm"
     [ "cobSessionToken" := view (_CobrandSession . cobrandSessionToken) cbSess
     , "siteId" := show i
@@ -226,9 +233,10 @@ validateSiteCreds = resolveKOF . fmap validateOnce
 -- refresh is initiated for the item. This API is expected to be called after
 -- getting a login form for a particular site using 'getSiteLoginForm' or
 -- @getSiteInfo@ or 'searchSite'.
-addSiteAccount1 :: CobrandSession -> UserSession -> SiteId -> [SiteCredentialComponent] -> Yodlee SiteAccount
-addSiteAccount1 cbSess user (SiteId i) siteCreds = do
+addSiteAccount1 :: CobrandSession -> UserSession -> Site -> [SiteCredentialComponent] -> Yodlee SiteAccount
+addSiteAccount1 cbSess user site siteCreds = do
   let whence = "addSiteAccount1"
+  i <- assertInputIsJust whence site $ preview (_Site . siteId) site
   siteCredsValidated <- assertInputIsJust whence siteCreds $ validateSiteCreds siteCreds
   let transformCredPiece cred name traversal = (("credentialFields[" <> view (siteCredItemIndex . to show . to C.pack) cred <> "]." <> name) :=) <$> preview traversal cred
   let transformCred cred = uncurry (transformCredPiece cred) <$> (("value", siteCredItemValue . _Just) : siteCredentialExpectedFields)
@@ -240,4 +248,5 @@ addSiteAccount1 cbSess user (SiteId i) siteCreds = do
                       , "credentialFields.enclosedType" := ("com.yodlee.common.FieldInfoSingle" :: T.Text) -- XXX
                       ] <> credRequestParams
   r <- performAPIRequest whence "/jsonsdk/SiteAccountManagement/addSiteAccount1" requestParams
+  assertOutputBool whence r $ has (responseBody . siteAccountId) r
   assertOutputIsJust whence r $ preview (responseBody . _Value . to SiteAccount) r
