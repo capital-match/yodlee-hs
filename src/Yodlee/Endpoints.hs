@@ -44,10 +44,6 @@ siteAccountId = key "siteAccountId" . _Integer
 itemId :: Traversal' Value Integer
 itemId = key "itemId" . _Integer
 
--- $endpoint
--- Those functions correspond to the identically named Yodlee Aggregation REST
--- APIs. Some functions have a number following them. I don't know why.
-
 -- | Perform an action and catch all synchronous exceptions.
 tryAny :: IO a -> IO (Either SomeException a)
 tryAny action = withAsync action waitCatch
