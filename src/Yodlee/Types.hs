@@ -134,6 +134,13 @@ siteCredItemSize = siteCredItemFormat . key "size" . _Integer
 siteCredItemIsOptional :: Fold SiteCredentialComponent Bool
 siteCredItemIsOptional = siteCredItemFormat . key "isOptional" . _Bool
 
+-- | 'RoutingTransitNumber' is an integer used to represent the RTN. It is used
+-- with 'getContentServiceInfoByRoutingNumber' to get a 'ContentService'. The
+-- RTN is a code used by financial institutions to identify a specific financial
+-- institution, and it is present on cheques, etc.
+newtype RoutingTransitNumber = RoutingTransitNumber { getRoutingTransitNumber :: Int }
+  deriving (Show)
+
 -- $value
 -- This section contains data structures such as 'CobrandSession',
 -- 'UserSession', and 'Site', which are returned by the Yodlee API. They are
@@ -191,6 +198,15 @@ newtype MFARefresh = MFARefresh Value deriving (Show)
 -- a 'SiteAccount'.
 _MFARefresh :: Getter MFARefresh Value
 _MFARefresh = to (\(MFARefresh a) -> a)
+
+-- | 'ContentService' is the JSON data structure returned by the Yodlee API
+-- after getting a content service, either by searching or using an RTN.
+newtype ContentService = ContentService Value deriving (Show)
+
+-- | This is the 'Getter' that allows you to extract the JSON 'Value' inside
+-- a 'SiteAccount'.
+_ContentService :: Getter ContentService Value
+_ContentService = to (\(ContentService a) -> a)
 
 
 -- | The 'Yodlee' monad is a type returned by all endpoint functions. This /may/

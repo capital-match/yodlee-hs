@@ -282,3 +282,18 @@ getMFAResponseForSite cbSess user siteAcc = do
                       ]
   r <- performAPIRequest whence "/jsonsdk/Refresh/getMFAResponseForSite" requestParams
   assertOutputIsJust whence r $ preview (responseBody . _Value . to MFARefresh) r
+
+-- | Description: This provides information about the bank content service in
+-- the site of the financial institution, based on the specified RTN. If the
+-- routing number is not valid, it returns null. The API also provides the
+-- associated login form details. Those login form details can be extracted
+-- using the 'Fold' called 'contentServiceLoginForm'.
+getContentServiceInfoByRoutingNumber :: CobrandSession -> RoutingTransitNumber -> Yodlee ContentService
+getContentServiceInfoByRoutingNumber cbSess (RoutingTransitNumber rtn) = do
+  let whence = "getContentServiceInfoByRoutingNumber"
+  r <- performAPIRequest whence "/jsonsdk/RoutingNumberService/getContentServiceInfoByRoutingNumber"
+    [ "cobSessionToken" := view (_CobrandSession . cobrandSessionToken) cbSess
+    , "routingNumber" := T.pack (show rtn)
+    , "notrim" := ("true" :: T.Text)
+    ]
+  assertOutputIsJust whence r $ preview (responseBody . _Value . to ContentService) r

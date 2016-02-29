@@ -31,12 +31,14 @@ module Yodlee.IAV.DataService
        , userAddress2
        , userCity
        , userCountry
+       , RoutingTransitNumber(..)
          -- * Endpoints
          -- $endpoints
        , coblogin
        , register3
        , login
        , searchSiteWithFilter
+       , getContentServiceInfoByRoutingNumber
        ) where
 
 import           Data.Default
