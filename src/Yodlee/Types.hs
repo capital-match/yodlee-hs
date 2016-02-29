@@ -225,6 +225,15 @@ _IAVRefreshStatus = to (\(IAVRefreshStatus a) -> a)
 iavRefreshStatusEnum :: Fold IAVRefreshStatus IAVRefreshStatusEnum
 iavRefreshStatusEnum = _IAVRefreshStatus . key "refreshStatus" . key "status" . _Integer . to iavRefreshStatusFromInteger
 
+-- | 'ItemVerificationData' is the JSON data structure returned by the Yodlee
+-- API after performing a retrieval of a successful refresh result.
+newtype ItemVerificationData = ItemVerificationData Value deriving (Show)
+
+-- | This is the 'Getter' that allows you to extract the JSON 'Value' inside
+-- a 'SiteAccount'.
+_ItemVerificationData :: Getter ItemVerificationData Value
+_ItemVerificationData = to (\(ItemVerificationData a) -> a)
+
 -- | The 'Yodlee' monad is a type returned by all endpoint functions. This /may/
 -- become a @newtype@ in the future. The error type may also be more
 -- descriptive, i.e. not just a 'Nothing' in case of error.

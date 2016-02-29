@@ -60,6 +60,7 @@ module Yodlee.IAV.DataService
        , searchSiteWithFilter
        , getContentServiceInfoByRoutingNumber
        , addItemAndStartVerificationDataRequest1
+       , getItemVerificationData
          -- * Helper functions
        , fillInSiteCredentialComponents
        ) where

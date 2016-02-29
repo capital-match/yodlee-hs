@@ -324,4 +324,20 @@ addItemAndStartVerificationDataRequest1 cbSess user cs siteCreds = do
                       ] <> credRequestParams
   r <- performAPIRequest whence "/jsonsdk/ExtendedInstantVerificationDataService/addItemAndStartVerificationDataRequest1" requestParams
   assertOutputBool whence r $ has (responseBody . itemId) r
-  assertOutputIsJust whence r $ preview (responseBody . _Value . to IAVRefreshStatus) r
+  let rv = preview (responseBody . _Value . to IAVRefreshStatus) r
+  assertOutputBool whence r $ has (_Just . iavRefreshStatusEnum) rv
+  assertOutputIsJust whence r rv
+
+-- | This retrieves the item verification data for each of the given
+-- 'IAVRefreshStatus'. Note that this is based on the latest verification
+-- request that has been executed successfully, so passing a stale
+-- 'IAVRefreshStatus' may result in fresh data.
+getItemVerificationData :: CobrandSession -> UserSession -> [IAVRefreshStatus] -> Yodlee [ItemVerificationData]
+getItemVerificationData cbSess user statuses = do
+  let whence = "getItemVerificationData"
+  transformed <- assertInputIsJust whence statuses $ zipWithM (\idx st -> ("itemIds[" <> C.pack (show idx) <> "]" :=) <$> preview (_IAVRefreshStatus . itemId) st) [(0 :: Int)..] statuses
+  let requestParams = [ "cobSessionToken" := view (_CobrandSession . cobrandSessionToken) cbSess
+                      , "userSessionToken" := view (_UserSession . userSessionToken) user
+                      ] <> transformed
+  r <- performAPIRequest whence "/jsonsdk/InstantVerificationDataService/getItemVerificationData" requestParams
+  return $ toListOf (responseBody . _Array . traverse . to ItemVerificationData) r
