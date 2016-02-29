@@ -89,6 +89,10 @@ instance Default UserRegistrationData where
 -- to each site. For this reason, a 'Getter' called 'siteCredItemFormat' is
 -- provided to get the expected format of this piece of credential. The
 -- credential may then be added by using the 'Lens'' called 'siteCredItemValue'.
+-- Note that despite the name, a 'SiteCredentialComponent' is also used when
+-- logging in to a content service, because each content service corresponds to
+-- exactly one site, although multiple content services may exist for a given
+-- site.
 $(declareLenses [d|
   data SiteCredentialComponent = SiteCredentialComponent
     { siteCredItemValue :: Maybe T.Text
@@ -208,6 +212,44 @@ newtype ContentService = ContentService Value deriving (Show)
 _ContentService :: Getter ContentService Value
 _ContentService = to (\(ContentService a) -> a)
 
+-- | This is an enumeration of IAV refresh statuses.
+data IAVRefreshStatusEnum
+  = IAVRefreshStatusUnknown
+  | IAVRefreshSuccessNextRefreshScheduled
+  | IAVRefreshAlreadyInProgress
+  | IAVRefreshUnsupportedOperationForSharedItem
+  | IAVRefreshSuccessStartRefresh
+  | IAVRefreshItemCannotBeRefreshed
+  | IAVRefreshAlreadyRefreshedRecently
+  | IAVRefreshUnsupportedOperationForCustomItem
+  | IAVRefreshSuccessRefreshWaitForMFA
+  deriving (Show)
+
+iavRefreshStatusFromInteger :: Integer -> IAVRefreshStatusEnum
+iavRefreshStatusFromInteger 1 = IAVRefreshSuccessNextRefreshScheduled
+iavRefreshStatusFromInteger 2 = IAVRefreshAlreadyInProgress
+iavRefreshStatusFromInteger 3 = IAVRefreshUnsupportedOperationForSharedItem
+iavRefreshStatusFromInteger 4 = IAVRefreshSuccessStartRefresh
+iavRefreshStatusFromInteger 5 = IAVRefreshItemCannotBeRefreshed
+iavRefreshStatusFromInteger 6 = IAVRefreshAlreadyRefreshedRecently
+iavRefreshStatusFromInteger 7 = IAVRefreshUnsupportedOperationForCustomItem
+iavRefreshStatusFromInteger 8 = IAVRefreshSuccessRefreshWaitForMFA
+iavRefreshStatusFromInteger _ = IAVRefreshStatusUnknown
+
+-- | 'IAVRefreshStatus' is the JSON data structure returned by the Yodlee API
+-- after starting a refresh, which contains, among other things, an
+-- 'IAVRefreshStatusEnum'.
+newtype IAVRefreshStatus = IAVRefreshStatus Value deriving (Show)
+
+-- | This is the 'Getter' that allows you to extract the JSON 'Value' inside
+-- a 'IAVRefreshStatus'.
+_IAVRefreshStatus :: Getter IAVRefreshStatus Value
+_IAVRefreshStatus = to (\(IAVRefreshStatus a) -> a)
+
+-- | This allows you to obtain the actual refresh status from the
+-- 'IAVRefreshStatus', which can be one of nine values.
+iavRefreshStatusEnum :: Fold IAVRefreshStatus IAVRefreshStatusEnum
+iavRefreshStatusEnum = _IAVRefreshStatus . key "refreshStatus" . key "status" . _Integer . to iavRefreshStatusFromInteger
 
 -- | The 'Yodlee' monad is a type returned by all endpoint functions. This /may/
 -- become a @newtype@ in the future. The error type may also be more

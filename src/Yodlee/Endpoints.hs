@@ -35,8 +35,14 @@ userSessionToken = key "userContext" . key "conversationCredentials" . key "sess
 siteId :: Traversal' Value Integer
 siteId = key "siteId" . _Integer
 
+contentServiceId :: Traversal' Value Integer
+contentServiceId = key "contentServiceId" . _Integer
+
 siteAccountId :: Traversal' Value Integer
 siteAccountId = key "siteAccountId" . _Integer
+
+itemId :: Traversal' Value Integer
+itemId = key "itemId" . _Integer
 
 -- $endpoint
 -- Those functions correspond to the identically named Yodlee Aggregation REST
@@ -177,7 +183,12 @@ searchSiteWithFilter cbSess user site iavOnly = do
 -- 'getSiteLoginForm' to achieve the same thing with an HTTP call in 'IO'. (But
 -- why?)
 siteLoginForm :: Fold Site SiteCredentialComponent
-siteLoginForm = _Site . key "loginForms" . _Array . to V.indexed . traverse . to (uncurry (SiteCredentialComponent Nothing))
+siteLoginForm = _Site . key "loginForms" . _Array . traverse . key "componentList" . _Array . to V.indexed . traverse . to (uncurry (SiteCredentialComponent Nothing))
+
+-- | This is a 'Fold' that allows you to obtain a list of
+-- 'SiteCredentialComponent' using 'toListOf'.
+contentServiceLoginForm :: Fold ContentService SiteCredentialComponent
+contentServiceLoginForm = _ContentService . key "loginForm" . key "componentList" . _Array . to V.indexed . traverse . to (uncurry (SiteCredentialComponent Nothing))
 
 -- | This provides the login form associated with the requested site, given a
 -- 'SiteId'. It is unknown why this needs to exist because 'searchSite' already
@@ -246,6 +257,14 @@ validateSiteCreds = resolveKOF . fmap validateOnce
           | preview siteCredItemIsOptional c == Just True = Omit
           | otherwise = Fail
 
+transformSiteCreds :: String -> [SiteCredentialComponent] -> Yodlee [FormParam]
+transformSiteCreds whence siteCreds = do
+  siteCredsValidated <- assertInputIsJust whence siteCreds $ validateSiteCreds siteCreds
+  let transformCredPiece cred name traversal = (("credentialFields[" <> view (siteCredItemIndex . to show . to C.pack) cred <> "]." <> name) :=) <$> preview traversal cred
+  let transformCred cred = uncurry (transformCredPiece cred) <$> (("value", siteCredItemValue . _Just) : siteCredentialExpectedFields)
+  let transformed = concatMap transformCred siteCredsValidated
+  assertInputIsJust whence siteCreds . sequence $ transformed
+
 -- | This adds a member site account associated with a particular site.
 -- refresh is initiated for the item. This API is expected to be called after
 -- getting a login form for a particular site using 'getSiteLoginForm' or
@@ -254,11 +273,7 @@ addSiteAccount1 :: CobrandSession -> UserSession -> Site -> [SiteCredentialCompo
 addSiteAccount1 cbSess user site siteCreds = do
   let whence = "addSiteAccount1"
   i <- assertInputIsJust whence site $ preview (_Site . siteId) site
-  siteCredsValidated <- assertInputIsJust whence siteCreds $ validateSiteCreds siteCreds
-  let transformCredPiece cred name traversal = (("credentialFields[" <> view (siteCredItemIndex . to show . to C.pack) cred <> "]." <> name) :=) <$> preview traversal cred
-  let transformCred cred = uncurry (transformCredPiece cred) <$> (("value", siteCredItemValue . _Just) : siteCredentialExpectedFields)
-  let transformed = concatMap transformCred siteCredsValidated
-  credRequestParams <- assertInputIsJust whence siteCreds . sequence $ transformed
+  credRequestParams <- transformSiteCreds whence siteCreds
   let requestParams = [ "cobSessionToken" := view (_CobrandSession . cobrandSessionToken) cbSess
                       , "userSessionToken" := view (_UserSession . userSessionToken) user
                       , "siteId" := show i
@@ -297,3 +312,20 @@ getContentServiceInfoByRoutingNumber cbSess (RoutingTransitNumber rtn) = do
     , "notrim" := ("true" :: T.Text)
     ]
   assertOutputIsJust whence r $ preview (responseBody . _Value . to ContentService) r
+
+-- | The adds an item and starts a verification data retrieval request for the
+-- newly added item. This API returns the status of the IAV Refresh. For
+-- example, it indicates whether the refresh is completed or it needs MFA flow.
+addItemAndStartVerificationDataRequest1 :: CobrandSession -> UserSession -> ContentService -> [SiteCredentialComponent] -> Yodlee IAVRefreshStatus
+addItemAndStartVerificationDataRequest1 cbSess user cs siteCreds = do
+  let whence = "addItemAndStartVerificationDataRequest1"
+  csid <- assertInputIsJust whence cs $ preview (_ContentService . contentServiceId) cs
+  credRequestParams <- transformSiteCreds whence siteCreds
+  let requestParams = [ "cobSessionToken" := view (_CobrandSession . cobrandSessionToken) cbSess
+                      , "userSessionToken" := view (_UserSession . userSessionToken) user
+                      , "credentialFields.enclosedType" := ("com.yodlee.common.FieldInfoSingle" :: T.Text) -- XXX
+                      , "iavRequest.contentServiceId" := show csid
+                      ] <> credRequestParams
+  r <- performAPIRequest whence "/jsonsdk/ExtendedInstantVerificationDataService/addItemAndStartVerificationDataRequest1" requestParams
+  assertOutputBool whence r $ has (responseBody . itemId) r
+  assertOutputIsJust whence r $ preview (responseBody . _Value . to IAVRefreshStatus) r

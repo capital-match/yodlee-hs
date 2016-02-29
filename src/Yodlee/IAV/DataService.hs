@@ -31,7 +31,27 @@ module Yodlee.IAV.DataService
        , userAddress2
        , userCity
        , userCountry
+       , SiteCredentialComponent
+       , siteCredItemFormat
+       , siteCredItemValue
+       , siteCredItemDisplayName
+       , siteCredItemTypeName
+       , siteCredItemName
+       , siteCredItemSize
+       , siteCredItemIsOptional
        , RoutingTransitNumber(..)
+         -- ** JSON 'Value's from the API
+         -- $value
+       , CobrandSession
+       , _CobrandSession
+       , UserSession
+       , _UserSession
+       , IAVRefreshStatusEnum(..)
+       , IAVRefreshStatus
+       , _IAVRefreshStatus
+       , iavRefreshStatusEnum
+       , ContentService
+       , contentServiceLoginForm
          -- * Endpoints
          -- $endpoints
        , coblogin
@@ -39,6 +59,9 @@ module Yodlee.IAV.DataService
        , login
        , searchSiteWithFilter
        , getContentServiceInfoByRoutingNumber
+       , addItemAndStartVerificationDataRequest1
+         -- * Helper functions
+       , fillInSiteCredentialComponents
        ) where
 
 import           Data.Default
