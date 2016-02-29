@@ -14,8 +14,9 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     Yodlee.Aggregation
-  other-modules:       Yodlee.Aggregation.Types
-                     , Yodlee.Aggregation.Endpoints
+                     , Yodlee.IAV.DataService
+  other-modules:       Yodlee.Types
+                     , Yodlee.Endpoints
   build-depends:       base >= 4.7 && < 5
                      , wreq >= 0.4
                      , data-default >= 0.5

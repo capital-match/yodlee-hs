@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Yodlee.Aggregation.Endpoints where
+module Yodlee.Endpoints where
 
 import           Control.Concurrent.Async
 import           Control.Error
@@ -21,7 +21,7 @@ import qualified Data.Vector                as V
 import           Network.Wreq               as HTTP
 import           Network.Wreq.Session       as HTTPSess
 import           Network.Wreq.Types
-import           Yodlee.Aggregation.Types
+import           Yodlee.Types
 
 urlBase :: String
 urlBase = "https://rest.developer.yodlee.com/services/srest/restserver/v1.0"

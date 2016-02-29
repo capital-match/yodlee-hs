@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings  #-}
 {-# LANGUAGE TemplateHaskell    #-}
 
-module Yodlee.Aggregation.Types where
+module Yodlee.Types where
 
 import           Control.Error
 import           Control.Exception.Base     (SomeException)

@@ -62,5 +62,5 @@ module Yodlee.Aggregation
   ) where
 
 import           Data.Default
-import           Yodlee.Aggregation.Endpoints
-import           Yodlee.Aggregation.Types
+import           Yodlee.Endpoints
+import           Yodlee.Types
