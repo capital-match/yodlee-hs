@@ -151,7 +151,24 @@ searchSite cbSess user site = do
     , "userSessionToken" := view (_UserSession . userSessionToken) user
     , "siteSearchString" := site
     ]
-  -- This guard checks it contains a siteId. Do not remove it! The correctness of @siteId@ depends on it.
+  assertOutputBool whence r $ allOf (responseBody . _Array . traverse) (has (key "siteId" . _Integer)) r
+  return $ toListOf (responseBody . _Array . traverse . to Site) r
+
+-- | This searches for sites performing a filter. It accepts the search string
+-- and filter to search for sites that supports IAV (when the 'Bool' value given
+-- is 'True'). If the search string is found in the display name parameter or
+-- aka parameter or keywords parameter of any 'Site' object, that site will be
+-- included in this list of matching sites.
+searchSiteWithFilter :: CobrandSession -> UserSession -> T.Text -> Bool -> Yodlee [Site]
+searchSiteWithFilter cbSess user site iavOnly = do
+  let whence = "searchSiteWithFilter"
+  r <- performAPIRequest whence "/jsonsdk/SiteTraversal/searchSiteWithFilter"
+    [ "cobSessionToken" := view (_CobrandSession . cobrandSessionToken) cbSess
+    , "userSessionToken" := view (_UserSession . userSessionToken) user
+    , "siteSearchString" := site
+    , "siteSearchFilter.retrieveIavSitesOnly" := (bool "false" "true" iavOnly :: T.Text)
+    , "siteSearchFilter.containers" := ("bank" :: T.Text)
+    ]
   assertOutputBool whence r $ allOf (responseBody . _Array . traverse) (has (key "siteId" . _Integer)) r
   return $ toListOf (responseBody . _Array . traverse . to Site) r
 

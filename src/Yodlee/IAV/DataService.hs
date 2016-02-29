@@ -36,6 +36,7 @@ module Yodlee.IAV.DataService
        , coblogin
        , register3
        , login
+       , searchSiteWithFilter
        ) where
 
 import           Data.Default
